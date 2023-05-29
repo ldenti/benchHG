@@ -2,7 +2,6 @@
 #include <iostream>
 #include <map>
 #include <math.h>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -18,46 +17,14 @@
 // #include "gfa.hpp"
 #include <region.hpp> // vg
 
-#include <align.hpp>
-#include <graphLoad.hpp>
-
 #include <spdlog/spdlog.h>
 
+#include "aligner.hpp"
 #include "argument_parser.hpp"
 #include "consenser.hpp"
 #include "graph.hpp"
 
 using namespace std;
-
-struct Alignment {
-  int id;
-  int l;
-  int il;
-  string cigar;
-  vector<int> path;
-  float score;
-
-  void set_score() {
-    map<char, int> OPs;
-    OPs['='] = 0;
-    OPs['X'] = 0;
-    OPs['I'] = 0;
-    OPs['D'] = 0;
-    regex word_regex("([0-9]+[=XID])");
-    auto words_begin = sregex_iterator(cigar.begin(), cigar.end(), word_regex);
-    auto words_end = std::sregex_iterator();
-    for (sregex_iterator i = words_begin; i != words_end; ++i) {
-      smatch match = *i;
-      string match_str = match.str();
-      char op = match_str.back();
-      match_str.pop_back();
-      int l = stoi(match_str);
-      OPs[op] += l;
-    }
-    il = OPs['X'] + OPs['='] + OPs['I'];
-    score = 1 - (OPs['I'] + OPs['D'] + OPs['X'] + abs(l - il)) / l; // CHECKME
-  }
-};
 
 bool is_subpath(const vector<int> &A, const vector<int> &B) {
   // FIXME: is this the best way to do this?
@@ -121,55 +88,11 @@ int main(int argc, char *argv[]) {
   graph.analyze();
 
   // Align to the graph
-  psgl::graphLoader g;
-  g.loadFromHG(graph.hg);
-
   vector<string> haps;
   haps.push_back(hap1);
   haps.push_back(hap2);
-
-  vector<psgl::ContigInfo> qmetadata;
-  qmetadata.push_back(psgl::ContigInfo{"hap1", (int)hap1.size()});
-  qmetadata.push_back(psgl::ContigInfo{"hap2", (int)hap2.size()});
-
-  vector<psgl::BestScoreInfo> bestScoreVector;
-  psgl::Parameters parameters = {"", "", "", "", 1, 1, 1, 1, 1};
-
-  // clang-format off
-  /**
-     ==57670==    at 0x48487A9: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
-     ==57670==    by 0x50F58AC: ??? (in /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0)
-     ==57670==    by 0x5106ACC: ??? (in /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0)
-     ==57670==    by 0x50FCA10: GOMP_parallel (in /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0)
-     ==57670==    by 0x15750A: psgl::alignToDAGLocal_Phase1_scalar(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, st$
-     ==57670==    by 0x157DC3: psgl::alignToDAGLocal(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<s$
-     ==57670==    by 0x15984C: main (main.cpp:287)
-   **/
-  // clang-format on
-  alignToDAGLocal(haps, g.diCharGraph, parameters, bestScoreVector);
-
-  vector<Alignment> alignments;
-  for (auto &e : bestScoreVector) {
-    vector<int> path;
-    path.push_back(g.diCharGraph.originalVertexId[e.refColumnStart].first);
-    for (const int32_t c : e.refColumns) {
-      if (c >= e.refColumnStart && c <= e.refColumnEnd) {
-        int32_t n = g.diCharGraph.originalVertexId[c].first;
-        if (n != path.back())
-          path.push_back(n);
-      }
-    }
-    Alignment a = {e.qryId, (int)haps[e.qryId].size(), 0, e.cigar, path};
-    a.set_score();
-    alignments.push_back(a);
-  }
-
-  // for (const auto &a : alignments) {
-  //   cerr << a.id << " " << a.cigar << " " << a.score << " |";
-  //   for (const auto &v : a.path)
-  //     cerr << " " << v;
-  //   cerr << endl;
-  // }
+  Aligner al(graph.hg, haps, 2);
+  al.align();
 
   // Iterating over truth
   bcf_srs_t *vcf = bcf_sr_init();
@@ -196,15 +119,15 @@ int main(int argc, char *argv[]) {
     // FIXME: assuming we have always two alignments
     score = 0;
     if (a1 == 1 && a2 == 0)
-      score = alignments[0].score;
+      score = al.alignments[0].score;
     else if (a1 == 0 && a2 == 1)
-      score = alignments[1].score;
+      score = al.alignments[1].score;
     else if (a1 == 0 && a2 == 0)
       score = -1;
     else if (a1 == a2)
-      score = max(alignments[0].score, alignments[1].score);
+      score = max(al.alignments[0].score, al.alignments[1].score);
     else
-      score = (alignments[0].score + alignments[1].score) / 2;
+      score = (al.alignments[0].score + al.alignments[1].score) / 2;
     cerr << "T " << idx << " " << score << endl;
     // TRUTHS[idx] = score
   }
@@ -255,38 +178,41 @@ int main(int argc, char *argv[]) {
       // Just one alternate allele
       assert(alts.size() == 1);
       // we assign the score if the allele is covered by at least one path
-      if ((alts[0].second && (check_ins(alignments[0].path, alts[0].first) ||
-                              check_ins(alignments[1].path, alts[0].first))) ||
+      if ((alts[0].second &&
+           (check_ins(al.alignments[0].path, alts[0].first) ||
+            check_ins(al.alignments[1].path, alts[0].first))) ||
           (!alts[0].second &&
-           (check_del(alignments[0].path, graph.in_edges[alts[0].first.front()],
+           (check_del(al.alignments[0].path,
+                      graph.in_edges[alts[0].first.front()],
                       graph.out_edges[alts[0].first.back()]) ||
-            check_del(alignments[1].path, graph.in_edges[alts[0].first.front()],
+            check_del(al.alignments[1].path,
+                      graph.in_edges[alts[0].first.front()],
                       graph.out_edges[alts[0].first.back()]))))
-        score = (alignments[0].score + alignments[1].score) / 2;
+        score = (al.alignments[0].score + al.alignments[1].score) / 2;
     } else {
       // Two alternate alleles
       assert(alts.size() == 2);
       int score1 = 0, score2 = 0;
       bool is_ins = alts[0].second;
       bool is_covered_1_by_1 =
-          is_ins ? check_ins(alignments[0].path, alts[0].first)
-                 : check_del(alignments[0].path,
+          is_ins ? check_ins(al.alignments[0].path, alts[0].first)
+                 : check_del(al.alignments[0].path,
                              graph.in_edges[alts[0].first.front()],
                              graph.out_edges[alts[0].first.back()]);
 
       bool is_covered_1_by_2 =
-          is_ins ? check_ins(alignments[1].path, alts[0].first)
-                 : check_del(alignments[1].path,
+          is_ins ? check_ins(al.alignments[1].path, alts[0].first)
+                 : check_del(al.alignments[1].path,
                              graph.in_edges[alts[0].first.front()],
                              graph.out_edges[alts[0].first.back()]);
       bool is_covered_2_by_1 =
-          is_ins ? check_ins(alignments[0].path, alts[1].first)
-                 : check_del(alignments[0].path,
+          is_ins ? check_ins(al.alignments[0].path, alts[1].first)
+                 : check_del(al.alignments[0].path,
                              graph.in_edges[alts[1].first.front()],
                              graph.out_edges[alts[1].first.back()]);
       bool is_covered_2_by_2 =
-          is_ins ? check_ins(alignments[1].path, alts[1].first)
-                 : check_del(alignments[1].path,
+          is_ins ? check_ins(al.alignments[1].path, alts[1].first)
+                 : check_del(al.alignments[1].path,
                              graph.in_edges[alts[1].first.front()],
                              graph.out_edges[alts[1].first.back()]);
 
@@ -294,19 +220,19 @@ int main(int argc, char *argv[]) {
       if ((is_covered_1_by_1 || is_covered_1_by_2) &&
           (is_covered_2_by_1 || is_covered_2_by_2)) {
         // arbitrary
-        score1 = alignments[0].score / 2;
-        score2 = alignments[1].score / 2;
+        score1 = al.alignments[0].score / 2;
+        score2 = al.alignments[1].score / 2;
       } else {
         if (is_covered_1_by_1 || is_covered_1_by_2) {
           if (is_covered_1_by_1)
-            score1 = alignments[0].score / 2;
+            score1 = al.alignments[0].score / 2;
           else
-            score1 = alignments[1].score / 2;
+            score1 = al.alignments[1].score / 2;
         } else if (is_covered_2_by_1 || is_covered_2_by_2) {
           if (is_covered_2_by_1)
-            score2 = alignments[0].score / 2;
+            score2 = al.alignments[0].score / 2;
           else
-            score2 = alignments[1].score / 2;
+            score2 = al.alignments[1].score / 2;
         }
       }
       score = score1 + score2;

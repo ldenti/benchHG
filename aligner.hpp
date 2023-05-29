@@ -1,0 +1,60 @@
+#ifndef ALIGNER_H_
+#define ALIGNER_H_
+
+#include <map>
+#include <regex>
+#include <string>
+#include <vector>
+
+#include <bdsg/hash_graph.hpp>
+
+#include <align.hpp>
+#include <graphLoad.hpp>
+
+using namespace std;
+
+struct Alignment {
+  int id;
+  int l;
+  int il;
+  string cigar;
+  vector<int> path;
+  float score;
+
+  void set_score() {
+    // FIXME: is this the best way to do this?
+    map<char, int> OPs;
+    OPs['='] = 0;
+    OPs['X'] = 0;
+    OPs['I'] = 0;
+    OPs['D'] = 0;
+    regex word_regex("([0-9]+[=XID])");
+    auto words_begin = sregex_iterator(cigar.begin(), cigar.end(), word_regex);
+    auto words_end = std::sregex_iterator();
+    for (sregex_iterator i = words_begin; i != words_end; ++i) {
+      smatch match = *i;
+      string match_str = match.str();
+      char op = match_str.back();
+      match_str.pop_back();
+      int l = stoi(match_str);
+      OPs[op] += l;
+    }
+    il = OPs['X'] + OPs['='] + OPs['I'];
+    score = 1 - (OPs['I'] + OPs['D'] + OPs['X'] + abs(l - il)) / l; // CHECKME
+  }
+};
+
+class Aligner {
+public:
+  psgl::graphLoader graph;
+  vector<string> queries;
+  vector<psgl::BestScoreInfo> bestScoreVector;
+  psgl::Parameters parameters;
+  vector<Alignment> alignments;
+
+public:
+  Aligner(const bdsg::HashGraph &, const vector<string> &, const int);
+  void align();
+};
+
+#endif // ALIGNER_H_
