@@ -23,7 +23,7 @@ extern "C" {
 
 #include "bdsg/hash_graph.hpp"
 #include "constructor.hpp"
-// #include "gfa.hpp"
+#include "gfa.hpp"
 #include "region.hpp"
 
 #include "align.hpp"
@@ -291,15 +291,18 @@ int main(int argc, char *argv[]) {
 
   constructor.construct_graph(fasta_filenames, vcf_filenames,
                               insertion_filenames, &graph);
-  // stringstream graph_ss;
-  // graph.serialize(graph_ss);
+
+  // Dump .gfa to stdout (optional)
+  stringstream graph_ss;
+  graph.serialize(graph_ss);
   // vg convert --gfa-out {output.vg} > {output.gfa}
-  // const vg::PathHandleGraph *graph_to_write =
-  //     dynamic_cast<const vg::PathHandleGraph *>(&graph);
-  // set<string> rgfa_paths;
-  // bool rgfa_pline = false;
-  // bool wline = true;
-  // vg::graph_to_gfa(graph_to_write, std::cout, rgfa_paths, rgfa_pline, wline);
+  const vg::PathHandleGraph *graph_to_write =
+      dynamic_cast<const vg::PathHandleGraph *>(&graph);
+  set<string> rgfa_paths;
+  bool rgfa_pline = false;
+  bool wline = true;
+  vg::graph_to_gfa(graph_to_write, std::cout, rgfa_paths, rgfa_pline, wline);
+  // ---------------------
 
   // Align to the graph
   psgl::graphLoader g;
@@ -310,8 +313,8 @@ int main(int argc, char *argv[]) {
   haps.push_back(hap2);
 
   vector<psgl::ContigInfo> qmetadata;
-  qmetadata.push_back(psgl::ContigInfo{"hap1", hap1.size()});
-  qmetadata.push_back(psgl::ContigInfo{"hap2", hap2.size()});
+  qmetadata.push_back(psgl::ContigInfo{"hap1", (int)hap1.size()});
+  qmetadata.push_back(psgl::ContigInfo{"hap2", (int)hap2.size()});
 
   vector<psgl::BestScoreInfo> bestScoreVector;
   psgl::Parameters parameters = {"", "", "", "", 1, 1, 1, 1, 1};
@@ -341,7 +344,7 @@ int main(int argc, char *argv[]) {
           path.push_back(n);
       }
     }
-    Alignment a = {e.qryId, haps[e.qryId].size(), 0, e.cigar, path};
+    Alignment a = {e.qryId, (int)haps[e.qryId].size(), 0, e.cigar, path};
     a.set_score();
     alignments.push_back(a);
   }
@@ -352,6 +355,124 @@ int main(int argc, char *argv[]) {
   //     cerr << " " << v;
   //   cerr << endl;
   // }
+
+  // get node sequence from graph
+  // cerr << graph.get_sequence(graph.get_handle(1)) << endl;
+
+  // get alt paths from graph
+  vector<vector<int>> alt_paths;
+  vector<string> path_names;
+  graph.for_each_path_handle([&](const bdsg::path_handle_t &p) {
+    path_names.emplace_back(graph.get_path_name(p));
+  });
+  for (int i = 0; i < graph.get_path_count(); ++i) {
+    if (path_names[i].front() != '_')
+      continue;
+    bdsg::path_handle_t ph = graph.get_path_handle(path_names[i]);
+    vector<int> path;
+    for (bdsg::handle_t handle : graph.scan_path(ph))
+      path.push_back(graph.get_id(handle));
+    alt_paths.push_back(path);
+  }
+
+  // Iterating over truth
+  bcf_srs_t *vcf = bcf_sr_init();
+  vcf->require_index = 1;
+  bcf_hdr_t *hdr;
+
+  if (!bcf_sr_add_reader(vcf, vcf_path))
+    cerr << "Failed to read from " << vcf_path << endl;
+  hdr = vcf->readers[0].header;
+  bcf_sr_seek(vcf, seq_name.c_str(), start_pos);
+
+  bcf1_t *rec = bcf_init();
+  while (bcf_sr_next_line(vcf)) {
+    rec = vcf->readers[0].buffer[0];
+    if (rec->pos > stop_pos)
+      break;
+    bcf_unpack(rec, BCF_UN_ALL);
+    char *idx(rec->d.id);
+    bcf_fmt_t *fmt = bcf_get_fmt(hdr, rec, "GT");
+    if (!fmt)
+      return 1;
+    uint8_t *ptr = fmt->p; // First sample
+    int a1 = bcf_gt_allele(ptr[0]);
+    int a2 = bcf_gt_allele(ptr[1]);
+
+    int score = 0;
+    // FIXME: assuming we have always two alignments
+    if (a1 == 1 && a2 == 0)
+      score = alignments[0].score;
+    else if (a1 == 0 && a2 == 1)
+      score = alignments[1].score;
+    else if (a1 == 0 && a2 == 0)
+      score = -1;
+    else if (a1 == a2)
+      score = max(alignments[0].score, alignments[1].score);
+    else
+      score = (alignments[0].score + alignments[1].score) / 2;
+    cerr << "T " << idx << " " << score << endl;
+    // TRUTHS[idx] = score
+  }
+  bcf_sr_destroy(vcf);
+  bcf_destroy1(rec);
+
+  // Assign scores to calls
+
+  // clang-format off
+  /**
+    # Assign scores to calls
+    CALLS = {}
+    cvcf = VariantFile(cvcf_path)
+    for rec in cvcf:
+        refall = rec.ref
+        altalls = rec.alts
+        assert len(altalls) <= 2  # TODO: assuming diploid
+        # retrieve path by matching the sequences
+        all_paths = [None for _ in altalls]
+        for a, altall in enumerate(altalls):
+            is_ins = len(refall) < len(altall)
+            for p, s in paths:
+                if is_ins and s == altall[1:].upper():
+                    all_paths[a] = (p, is_ins)
+                    break
+                elif not is_ins and s == refall[1:].upper():
+                    all_paths[a] = (p, is_ins)
+                    break
+        # We assume that we must have found the paths since graph is built from same VCF. If not, issue could be in graph construction
+        score = 0
+        if len(all_paths) == 1:
+            assert all_paths[0] != None
+            # we assign the score if the allele is covered by at least one path
+            if check_path(all_paths[0][0], all_paths[0][1], SCORES[0][0], in_edges, out_edges) or check_path(all_paths[0][0], all_paths[0][1], SCORES[1][0], in_edges, out_edges):
+                score = (SCORES[0][1] +  SCORES[1][1])/2
+        else:
+            assert all_paths[0] != None and all_paths[1] != None
+            score1, score2 = 0, 0
+            is_covered_1_by_1 = check_path(all_paths[0][0], all_paths[0][1], SCORES[0][0], in_edges, out_edges)
+            is_covered_1_by_2 = check_path(all_paths[0][0], all_paths[0][1], SCORES[1][0], in_edges, out_edges)
+            is_covered_2_by_1 = check_path(all_paths[1][0], all_paths[1][1], SCORES[0][0], in_edges, out_edges)
+            is_covered_2_by_2 = check_path(all_paths[1][0], all_paths[1][1], SCORES[1][0], in_edges, out_edges)
+            # CHECKME: assuming that the same path cannot cover both alleles
+            if (is_covered_1_by_1 or is_covered_1_by_2) and (is_covered_2_by_1 or is_covered_2_by_2):
+                # arbitrary
+                score1 = SCORES[0][1]/2
+                score2 = SCORES[1][1]/2
+            else:
+                if is_covered_1_by_1 or is_covered_1_by_2:
+                    if is_covered_1_by_1:
+                        score1 = SCORES[0][1]/2
+                    else:
+                        score1 = SCORES[1][1]/2
+                elif is_covered_2_by_1 or is_covered_2_by_2:
+                    if is_covered_2_by_1:
+                        score2 = SCORES[0][1]/2
+                    else:
+                        score2 = SCORES[1][1]/2
+            score = score1 + score2
+        CALLS[rec.id] = score
+  **/
+  // clang-format on
 
   cerr << "END" << endl;
   return 0;
