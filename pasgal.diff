@@ -1,5 +1,5 @@
 diff --git a/src/include/align.hpp b/src/include/align.hpp
-index e9ea48a..93adeea 100644
+index e9ea48a..955edcb 100644
 --- a/src/include/align.hpp
 +++ b/src/include/align.hpp
 @@ -11,829 +11,758 @@
@@ -70,8 +70,9 @@ index e9ea48a..93adeea 100644
 -    auto tick1 = __rdtsc();
 +  auto tick1 = __rdtsc();
  
- #pragma omp parallel
+-#pragma omp parallel
 -    {
++#pragma omp parallel num_threads(parameters.threads)
 +  {
  
 -      //initialize matrix of size 2 x width, init with zero
@@ -260,8 +261,9 @@ index e9ea48a..93adeea 100644
 -    auto tick1 = __rdtsc();
 +  auto tick1 = __rdtsc();
  
- #pragma omp parallel
+-#pragma omp parallel
 -    {
++#pragma omp parallel num_threads(parameters.threads)
 +  {
  
 -      //initialize matrix of size 2 x width, init with zero
@@ -467,7 +469,7 @@ index e9ea48a..93adeea 100644
 -#pragma omp parallel  
 -    {
 -      threadTimings[omp_get_thread_num()] = omp_get_wtime();
-+#pragma omp parallel
++#pragma omp parallel num_threads(parameters.threads)
 +  {
 +    threadTimings[omp_get_thread_num()] = omp_get_wtime();
  
@@ -621,79 +623,76 @@ index e9ea48a..93adeea 100644
 +            // save vertical difference of scores, used later for backtracking
 +            completeMatrixLog[i][j] = matrix[i & 1][j] - matrix[(i - 1) & 1][j];
 +          }
-+
+ 
+-              //evaluate current score
+-              matrix[i & 1][j] = psgl_max ( psgl_max(fromInsertion, fromMatch) , psgl_max(fromDeletion, 0) );
 +          // Save last row
 +          if (i == reducedHeight - 1)
 +            finalRow = matrix[i & 1];
 +        }
  
--              //evaluate current score
--              matrix[i & 1][j] = psgl_max ( psgl_max(fromInsertion, fromMatch) , psgl_max(fromDeletion, 0) );
-+        int32_t bestScoreReComputed =
-+            *std::max_element(finalRow.begin(), finalRow.end());
- 
 -              //save vertical difference of scores, used later for backtracking
 -              completeMatrixLog[i][j] = matrix[i & 1][j] - matrix[(i-1) & 1][j];
 -            }
++        int32_t bestScoreReComputed =
++            *std::max_element(finalRow.begin(), finalRow.end());
+ 
+-            //Save last row
+-            if (i == reducedHeight - 1) 
+-              finalRow = matrix[i & 1];
+-          }
 +        // the recomputed score and its location should match our original
 +        // calculation
 +        assert(bestScoreReComputed == bestScoreVector[readno].score);
 +        assert(bestScoreReComputed ==
 +               finalRow[bestScoreVector[readno].refColumnEnd - j0]);
  
--            //Save last row
--            if (i == reducedHeight - 1) 
--              finalRow = matrix[i & 1];
--          }
+-          int32_t bestScoreReComputed = *std::max_element(finalRow.begin(), finalRow.end());
 +        auto tick2 = __rdtsc();
 +        time_p2_1 = tick2 - tick1;
 +      }
  
--          int32_t bestScoreReComputed = *std::max_element(finalRow.begin(), finalRow.end());
+-          //the recomputed score and its location should match our original calculation
+-          assert( bestScoreReComputed == bestScoreVector[readno].score );
+-          assert( bestScoreReComputed == finalRow[ bestScoreVector[readno].refColumnEnd - j0 ] );
 +      //
 +      // PHASE 2.2 : COMPUTE CIGAR
 +      //
  
--          //the recomputed score and its location should match our original calculation
--          assert( bestScoreReComputed == bestScoreVector[readno].score );
--          assert( bestScoreReComputed == finalRow[ bestScoreVector[readno].refColumnEnd - j0 ] );
-+      std::string cigar;
-+      std::vector<int32_t> used_cols;
- 
 -          auto tick2 = __rdtsc();
 -          time_p2_1 = tick2 - tick1;
 -        }
-+      {
-+        auto tick1 = __rdtsc();
++      std::string cigar;
++      std::vector<int32_t> used_cols;
  
 -        //
 -        // PHASE 2.2 : COMPUTE CIGAR
 -        //
-+        std::vector<int32_t> currentRowScores = finalRow;
-+        std::vector<int32_t> aboveRowScores(reducedWidth);
++      {
++        auto tick1 = __rdtsc();
  
 -        std::string cigar;
 -        std::vector<int32_t> used_cols;
-+        int col = reducedWidth - 1;
-+        int row = reducedHeight - 1;
++        std::vector<int32_t> currentRowScores = finalRow;
++        std::vector<int32_t> aboveRowScores(reducedWidth);
  
 -        {
 -          auto tick1 = __rdtsc();
++        int col = reducedWidth - 1;
++        int row = reducedHeight - 1;
+ 
+-          std::vector<int32_t> currentRowScores = finalRow; 
+-          std::vector<int32_t> aboveRowScores (reducedWidth);
 +        while (col >= 0 && row >= 0) {
 +          used_cols.push_back(col + j0); // CHECKME
 +          if (currentRowScores[col] <= 0)
 +            break;
  
--          std::vector<int32_t> currentRowScores = finalRow; 
--          std::vector<int32_t> aboveRowScores (reducedWidth);
+-          int col = reducedWidth - 1;
+-          int row = reducedHeight - 1;
 +          // retrieve score values from vertical score differences
 +          for (std::size_t i = 0; i < reducedWidth; i++)
 +            aboveRowScores[i] = currentRowScores[i] - completeMatrixLog[row][i];
- 
--          int col = reducedWidth - 1;
--          int row = reducedHeight - 1;
-+          // current reference character
-+          char curChar = graph.vertex_label[col + j0];
  
 -          while (col >= 0 && row >= 0)
 -          {
@@ -740,8 +739,8 @@ index e9ea48a..93adeea 100644
 -                }
 -              }
 -            }
-+          // insertion edit
-+          int32_t fromInsertion = aboveRowScores[col] - parameters.ins;
++          // current reference character
++          char curChar = graph.vertex_label[col + j0];
  
 -            //evaluate recurrence
 -            {
@@ -751,23 +750,22 @@ index e9ea48a..93adeea 100644
 -                  cigar.push_back('=');
 -                else
 -                  cigar.push_back('X');
++          // insertion edit
++          int32_t fromInsertion = aboveRowScores[col] - parameters.ins;
+ 
+-                //if alignment starts from this column, stop
+-                if (fromMatchPos == col)
+-                  break;
 +          // match-mismatch edit
 +          int32_t matchScore = curChar == readSet[readno][row + i0]
 +                                   ? parameters.match
 +                                   : -1 * parameters.mismatch;
  
--                //if alignment starts from this column, stop
--                if (fromMatchPos == col)
--                  break;
+-                //shift to preceeding column
+-                col = fromMatchPos;
 +          int32_t fromMatch =
 +              matchScore; // also handles the case when in-degree is zero
 +          std::size_t fromMatchPos = col;
- 
--                //shift to preceeding column
--                col = fromMatchPos;
-+          // deletion edit
-+          int32_t fromDeletion = -1;
-+          std::size_t fromDeletionPos;
  
 -                //shift to above row
 -                row--; currentRowScores = aboveRowScores;
@@ -775,22 +773,26 @@ index e9ea48a..93adeea 100644
 -              else if (currentRowScores[col] == fromDeletion)
 -              {
 -                cigar.push_back('D');
++          // deletion edit
++          int32_t fromDeletion = -1;
++          std::size_t fromDeletionPos;
+ 
+-                //shift to preceeding column
+-                col = fromDeletionPos;
+-              }
+-              else 
+-              {
+-                assert(currentRowScores[col] == fromInsertion);
 +          for (auto k = graph.offsets_in[col + j0];
 +               k < graph.offsets_in[col + j0 + 1]; k++) {
 +            if (graph.adjcny_in[k] >= j0) {
 +              auto fromCol = graph.adjcny_in[k] - j0;
  
--                //shift to preceeding column
--                col = fromDeletionPos;
+-                cigar.push_back('I');
 +              if (fromMatch < aboveRowScores[fromCol] + matchScore) {
 +                fromMatch = aboveRowScores[fromCol] + matchScore;
 +                fromMatchPos = fromCol;
-               }
--              else 
--              {
--                assert(currentRowScores[col] == fromInsertion);
--
--                cigar.push_back('I');
++              }
  
 -                //shift to above row
 -                row--; currentRowScores = aboveRowScores;
@@ -837,16 +839,20 @@ index e9ea48a..93adeea 100644
 +            }
 +          }
 +        }
- 
--          //shorten the cigar string
--          psgl::seqUtils::cigarCompact(cigar);
++
 +        // string reverse
 +        std::reverse(cigar.begin(), cigar.end());
  
--          //validate if cigar yields best score
--          assert ( psgl::seqUtils::cigarScore (cigar, parameters) ==  bestScoreVector[readno].score );
+-          //shorten the cigar string
+-          psgl::seqUtils::cigarCompact(cigar);
 +        // shorten the cigar string
 +        psgl::seqUtils::cigarCompact(cigar);
+ 
+-          //validate if cigar yields best score
+-          assert ( psgl::seqUtils::cigarScore (cigar, parameters) ==  bestScoreVector[readno].score );
++        // validate if cigar yields best score
++        assert(psgl::seqUtils::cigarScore(cigar, parameters) ==
++               bestScoreVector[readno].score);
  
 -          bestScoreVector[readno].cigar = cigar;
 -          std::reverse(used_cols.begin(), used_cols.end());
@@ -854,26 +860,18 @@ index e9ea48a..93adeea 100644
 -          auto tick2 = __rdtsc();
 -          time_p2_2 = tick2 - tick1;
 -        }
-+        // validate if cigar yields best score
-+        assert(psgl::seqUtils::cigarScore(cigar, parameters) ==
-+               bestScoreVector[readno].score);
- 
--#ifdef DEBUG
--        std::cout << "INFO, psgl::alignToDAGLocal_Phase2, aligning read #" << readno + 1 << ", len = " << readLength << ", score " << bestScoreVector[readno].score << ", strand " << bestScoreVector[readno].strand << "\n";
--        std::cout << "INFO, psgl::alignToDAGLocal_Phase2, cigar: " << bestScoreVector[readno].cigar << "\n";
--        std::cout << "TIMER, psgl::alignToDAGLocal_Phase2, CPU cycles spent in :  phase 2.1 = " << time_p2_1 * 1.0 / ASSUMED_CPU_FREQ << ", phase 2.2 = " << time_p2_2 * 1.0 / ASSUMED_CPU_FREQ << "\n";
--        //std::cout.flush();
--#endif
 +        bestScoreVector[readno].cigar = cigar;
 +        std::reverse(used_cols.begin(), used_cols.end());
 +        bestScoreVector[readno].refColumns = used_cols;
 +        auto tick2 = __rdtsc();
 +        time_p2_2 = tick2 - tick1;
-       }
++      }
  
--      threadTimings[omp_get_thread_num()] = omp_get_wtime() - threadTimings[omp_get_thread_num()];
--
-+#ifdef DEBUG
+ #ifdef DEBUG
+-        std::cout << "INFO, psgl::alignToDAGLocal_Phase2, aligning read #" << readno + 1 << ", len = " << readLength << ", score " << bestScoreVector[readno].score << ", strand " << bestScoreVector[readno].strand << "\n";
+-        std::cout << "INFO, psgl::alignToDAGLocal_Phase2, cigar: " << bestScoreVector[readno].cigar << "\n";
+-        std::cout << "TIMER, psgl::alignToDAGLocal_Phase2, CPU cycles spent in :  phase 2.1 = " << time_p2_1 * 1.0 / ASSUMED_CPU_FREQ << ", phase 2.2 = " << time_p2_2 * 1.0 / ASSUMED_CPU_FREQ << "\n";
+-        //std::cout.flush();
 +      std::cout << "INFO, psgl::alignToDAGLocal_Phase2, aligning read #"
 +                << readno + 1 << ", len = " << readLength << ", score "
 +                << bestScoreVector[readno].score << ", strand "
@@ -886,7 +884,11 @@ index e9ea48a..93adeea 100644
 +                << ", phase 2.2 = " << time_p2_2 * 1.0 / ASSUMED_CPU_FREQ
 +                << "\n";
 +      // std::cout.flush();
-+#endif
+ #endif
+-      }
+-
+-      threadTimings[omp_get_thread_num()] = omp_get_wtime() - threadTimings[omp_get_thread_num()];
+-
      }
  
 -    std::cout << "TIMER, psgl::alignToDAGLocal_Phase2, individual thread timings (s) : " << printStats(threadTimings) << "\n"; 

@@ -1,0 +1,37 @@
+diff --git a/consensus.c b/consensus.c
+index 6ba23f2b..127d244e 100644
+--- a/consensus.c
++++ b/consensus.c
+@@ -320,7 +320,7 @@ static void destroy_data(args_t *args)
+     destroy_chain(args->chain);
+ }
+ 
+-static void init_region(args_t *args, char *line)
++void init_region(args_t *args, char *line)
+ {
+     char *ss, *se = line;
+     while ( *se && !isspace(*se) && *se!=':' ) se++;
+@@ -358,12 +358,12 @@ static void init_region(args_t *args, char *line)
+     args->vcf_rbuf.n = 0;
+     bcf_sr_seek(args->files,line,args->fa_ori_pos);
+     if ( tmp_ptr ) *tmp_ptr = tmp;
+-    fprintf(args->fp_out,">%s%s\n",args->chr_prefix?args->chr_prefix:"",line);
++    // fprintf(args->fp_out,">%s%s\n",args->chr_prefix?args->chr_prefix:"",line);
+     if ( args->chain_fname )
+         args->chain = init_chain(args->chain, args->fa_ori_pos);
+ }
+ 
+-static bcf1_t **next_vcf_line(args_t *args)
++bcf1_t **next_vcf_line(args_t *args)
+ {
+     if ( args->vcf_rbuf.n )
+     {
+@@ -551,7 +551,7 @@ static int iupac_set_allele(args_t *args, bcf1_t *rec)
+     if ( fallback_alt >= 0 ) return fallback_alt;
+     return ialt;
+ }
+-static void apply_variant(args_t *args, bcf1_t *rec)
++void apply_variant(args_t *args, bcf1_t *rec)
+ {
+     static int warned_haplotype = 0;
+ 
