@@ -23,7 +23,7 @@ extern "C" {
 
 #include "bdsg/hash_graph.hpp"
 #include "constructor.hpp"
-#include "gfa.hpp"
+// #include "gfa.hpp"
 #include "region.hpp"
 
 #include "align.hpp"
@@ -250,7 +250,7 @@ int main(int argc, char *argv[]) {
   args->fname = tvcf_path;
   init_data(args);
   get_consensus(region, region_seq, args);
-  cerr << "Applied " << args->napplied << " variants" << endl;
+  // cerr << "Applied " << args->napplied << " variants" << endl;
   // char *hap1 = (char *)malloc(args->fa_buf.l + 1);
   // strcpy(hap1, args->fa_buf.s);
   // hap1[args->fa_buf.l] = '\0';
@@ -263,7 +263,7 @@ int main(int argc, char *argv[]) {
   args->fname = tvcf_path;
   init_data(args);
   get_consensus(region, region_seq, args);
-  cerr << "Applied " << args->napplied << " variants" << endl;
+  // cerr << "Applied " << args->napplied << " variants" << endl;
   // char *hap2 = (char *)malloc(args->fa_buf.l + 1);
   // strcpy(hap2, args->fa_buf.s);
   // hap2[args->fa_buf.l] = '\0';
@@ -318,15 +318,15 @@ int main(int argc, char *argv[]) {
                               insertion_filenames, &graph);
 
   // Dump .gfa to stdout (optional)
-  stringstream graph_ss;
-  graph.serialize(graph_ss);
-  // vg convert --gfa-out {output.vg} > {output.gfa}
-  const vg::PathHandleGraph *graph_to_write =
-      dynamic_cast<const vg::PathHandleGraph *>(&graph);
-  set<string> rgfa_paths;
-  bool rgfa_pline = false;
-  bool wline = true;
-  vg::graph_to_gfa(graph_to_write, std::cout, rgfa_paths, rgfa_pline, wline);
+  // stringstream graph_ss;
+  // graph.serialize(graph_ss);
+  // // vg convert --gfa-out {output.vg} > {output.gfa}
+  // const vg::PathHandleGraph *graph_to_write =
+  //     dynamic_cast<const vg::PathHandleGraph *>(&graph);
+  // set<string> rgfa_paths;
+  // bool rgfa_pline = false;
+  // bool wline = true;
+  // vg::graph_to_gfa(graph_to_write, std::cout, rgfa_paths, rgfa_pline, wline);
   // ---------------------
 
   // Align to the graph
@@ -570,6 +570,6 @@ int main(int argc, char *argv[]) {
   bcf_sr_destroy(vcf);
   // bcf_destroy(rec); // CHECKME: why we don't need this?
 
-  cerr << "END" << endl;
+  // cerr << "END" << endl;
   return 0;
 }
