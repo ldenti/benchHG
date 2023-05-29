@@ -13,7 +13,7 @@ TScorer::TScorer(const string &vcf_path, const string &seq_name,
 }
 
 void TScorer::compute(const vector<Alignment> &alignments) {
-  int score = 0;
+  float score = 0.0;
   while (bcf_sr_next_line(vcf)) {
     rec = vcf->readers[0].buffer[0];
     if (rec->pos > stop)
@@ -29,7 +29,7 @@ void TScorer::compute(const vector<Alignment> &alignments) {
     int a1 = bcf_gt_allele(ptr[0]);
     int a2 = bcf_gt_allele(ptr[1]);
     // FIXME: assuming we have always two alignments
-    score = 0;
+    score = 0.0;
     if (a1 == 1 && a2 == 0)
       score = alignments[0].score;
     else if (a1 == 0 && a2 == 1)
@@ -39,9 +39,8 @@ void TScorer::compute(const vector<Alignment> &alignments) {
     else if (a1 == a2)
       score = max(alignments[0].score, alignments[1].score);
     else
-      score = (alignments[0].score + alignments[1].score) / 2;
-    cerr << "T " << idx << " " << score << endl;
-    // TRUTHS[idx] = score
+      score = (alignments[0].score + alignments[1].score) / 2.0;
+    results[idx] = score;
   }
   // TODO: move this somewhere else
   bcf_sr_destroy(vcf);

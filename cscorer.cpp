@@ -13,7 +13,7 @@ CScorer::CScorer(const string &vcf_path, const string &seq_name,
 }
 
 void CScorer::compute(const vector<Alignment> &alignments, const Graph &graph) {
-  int score = 0;
+  float score = 0.0;
   while (bcf_sr_next_line(vcf)) {
     rec = vcf->readers[0].buffer[0];
     if (rec->pos > stop)
@@ -45,7 +45,7 @@ void CScorer::compute(const vector<Alignment> &alignments, const Graph &graph) {
 
     // We assume that we must have found the paths since graph is built from
     // same VCF. If not, issue could be in graph construction
-    score = 0;
+    score = 0.0;
     if (rec->n_allele == 2) {
       // Just one alternate allele
       assert(alts.size() == 1);
@@ -60,7 +60,7 @@ void CScorer::compute(const vector<Alignment> &alignments, const Graph &graph) {
             check_del(alignments.at(1).path,
                       graph.in_edges.at(alts.at(0).first.front()),
                       graph.out_edges.at(alts.at(0).first.back())))))
-        score = (alignments.at(0).score + alignments.at(1).score) / 2;
+        score = (alignments.at(0).score + alignments.at(1).score) / 2.0;
     } else {
       // Two alternate alleles
       assert(alts.size() == 2);
@@ -92,24 +92,24 @@ void CScorer::compute(const vector<Alignment> &alignments, const Graph &graph) {
       if ((is_covered_1_by_1 || is_covered_1_by_2) &&
           (is_covered_2_by_1 || is_covered_2_by_2)) {
         // arbitrary
-        score1 = alignments[0].score / 2;
-        score2 = alignments[1].score / 2;
+        score1 = alignments[0].score / 2.0;
+        score2 = alignments[1].score / 2.0;
       } else {
         if (is_covered_1_by_1 || is_covered_1_by_2) {
           if (is_covered_1_by_1)
-            score1 = alignments[0].score / 2;
+            score1 = alignments[0].score / 2.0;
           else
-            score1 = alignments[1].score / 2;
+            score1 = alignments[1].score / 2.0;
         } else if (is_covered_2_by_1 || is_covered_2_by_2) {
           if (is_covered_2_by_1)
-            score2 = alignments[0].score / 2;
+            score2 = alignments[0].score / 2.0;
           else
-            score2 = alignments[1].score / 2;
+            score2 = alignments[1].score / 2.0;
         }
       }
       score = score1 + score2;
     }
-    cerr << "C " << idx << " " << score << endl;
+    results[idx] = score;
   }
 
   // TODO: move this somewhere else

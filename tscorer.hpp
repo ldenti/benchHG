@@ -18,6 +18,7 @@ public:
   bcf_hdr_t *hdr;
   bcf1_t *rec;
   int stop;
+  map<string, float> results;
   TScorer(const string &, const string &, const int, const int);
   void compute(const vector<Alignment> &);
 };

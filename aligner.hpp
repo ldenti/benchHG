@@ -23,11 +23,11 @@ struct Alignment {
 
   void set_score() {
     // FIXME: is this the best way to do this?
-    map<char, int> OPs;
-    OPs['='] = 0;
-    OPs['X'] = 0;
-    OPs['I'] = 0;
-    OPs['D'] = 0;
+    map<char, float> OPs;
+    OPs['='] = 0.0;
+    OPs['X'] = 0.0;
+    OPs['I'] = 0.0;
+    OPs['D'] = 0.0;
     regex word_regex("([0-9]+[=XID])");
     auto words_begin = sregex_iterator(cigar.begin(), cigar.end(), word_regex);
     auto words_end = std::sregex_iterator();
@@ -40,7 +40,7 @@ struct Alignment {
       OPs[op] += l;
     }
     il = OPs['X'] + OPs['='] + OPs['I'];
-    score = 1 - (OPs['I'] + OPs['D'] + OPs['X'] + abs(l - il)) / l; // CHECKME
+    score = 1.0 - (OPs['I'] + OPs['D'] + OPs['X'] + abs(l - il)) / l; // CHECKME
   }
 };
 
