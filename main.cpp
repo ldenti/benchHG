@@ -206,10 +206,35 @@ static void destroy_data(args_t *args) {
   free(args->chr);
 }
 
+bool is_subpath(const vector<int> &A, const vector<int> &B) {
+  // FIXME: is this the best way to do this?
+  string sA = "";
+  for (const int &a : A)
+    sA += to_string(a);
+  string sB = "";
+  for (const int &b : B)
+    sB += to_string(b);
+  return sA.find(sB) != sA.npos;
+}
+
+bool check_ins(const vector<int> &true_path, const vector<int> &alt_path) {
+  return is_subpath(true_path, alt_path);
+}
+
+bool check_del(const vector<int> &true_path, const vector<int> &pre_nodes,
+               const vector<int> &post_nodes) {
+  for (const int &pre_n : pre_nodes)
+    for (const int &post_n : post_nodes)
+      if (is_subpath(true_path, {pre_n, post_n}))
+        return true; // CHECKME: is this correct? One is enough?
+  return false;
+}
+
 int main(int argc, char *argv[]) {
   char *fa_path = argv[1];
-  char *vcf_path = argv[2];
-  char *region = argv[3];
+  char *tvcf_path = argv[2];
+  char *cvcf_path = argv[3];
+  char *region = argv[4];
 
   // Create or load the .fai
   faidx_t *fai = fai_load3_format(fa_path, NULL, NULL, FAI_CREATE, FAI_FASTA);
@@ -222,7 +247,7 @@ int main(int argc, char *argv[]) {
   // Extract subhaplotypes
   args_t *args = (args_t *)calloc(1, sizeof(args_t));
   args->haplotype = 1;
-  args->fname = vcf_path;
+  args->fname = tvcf_path;
   init_data(args);
   get_consensus(region, region_seq, args);
   cerr << "Applied " << args->napplied << " variants" << endl;
@@ -235,7 +260,7 @@ int main(int argc, char *argv[]) {
 
   args = (args_t *)calloc(1, sizeof(args_t));
   args->haplotype = 2;
-  args->fname = vcf_path;
+  args->fname = tvcf_path;
   init_data(args);
   get_consensus(region, region_seq, args);
   cerr << "Applied " << args->napplied << " variants" << endl;
@@ -267,7 +292,7 @@ int main(int argc, char *argv[]) {
   vector<string> fasta_filenames;
   fasta_filenames.push_back(fa_path);
   vector<string> vcf_filenames;
-  vcf_filenames.push_back(vcf_path);
+  vcf_filenames.push_back(cvcf_path);
   vector<string> insertion_filenames;
 
   constructor.max_node_size = 32;
@@ -356,11 +381,12 @@ int main(int argc, char *argv[]) {
   //   cerr << endl;
   // }
 
-  // get node sequence from graph
-  // cerr << graph.get_sequence(graph.get_handle(1)) << endl;
-
-  // get alt paths from graph
-  vector<vector<int>> alt_paths;
+  // get info from graph
+  vector<pair<vector<int>, string>> alt_paths;
+  map<int, vector<int>>
+      in_edges; // for each source of alt_paths, store in-nodes
+  map<int, vector<int>>
+      out_edges; // for each sink of alt_paths, store out-nodes
   vector<string> path_names;
   graph.for_each_path_handle([&](const bdsg::path_handle_t &p) {
     path_names.emplace_back(graph.get_path_name(p));
@@ -370,22 +396,44 @@ int main(int argc, char *argv[]) {
       continue;
     bdsg::path_handle_t ph = graph.get_path_handle(path_names[i]);
     vector<int> path;
-    for (bdsg::handle_t handle : graph.scan_path(ph))
+    string path_seq;
+    for (bdsg::handle_t handle : graph.scan_path(ph)) {
       path.push_back(graph.get_id(handle));
-    alt_paths.push_back(path);
+      path_seq += graph.get_sequence(handle);
+    }
+    graph.follow_edges(graph.get_handle(path.front()), true,
+                       [&](const bdsg::handle_t &n) {
+                         in_edges[path.front()].push_back(graph.get_id(n));
+                       });
+    graph.follow_edges(graph.get_handle(path.back()), false,
+                       [&](const bdsg::handle_t &n) {
+                         out_edges[path.back()].push_back(graph.get_id(n));
+                       });
+    transform(path_seq.begin(), path_seq.end(), path_seq.begin(), ::toupper);
+    alt_paths.push_back(make_pair(path, path_seq));
   }
 
+  // clang-format off
+  // in_edges = {path[0]: [] for path, _ in paths}
+  //   out_edges = {path[-1]: [] for path, _ in paths}
+  //   for line in open(gfa_path):
+  //       if line.startswith("L"):
+  //           _, id1, _, id2, _, _ = line.strip("\n").split("\t")
+  //           if id1 in out_edges:
+  //               out_edges[id1].append(id2)
+  //           if id2 in in_edges:
+  //               in_edges[id2].append(id1)
+  // clang-format on
   // Iterating over truth
   bcf_srs_t *vcf = bcf_sr_init();
   vcf->require_index = 1;
   bcf_hdr_t *hdr;
-
-  if (!bcf_sr_add_reader(vcf, vcf_path))
-    cerr << "Failed to read from " << vcf_path << endl;
+  if (!bcf_sr_add_reader(vcf, tvcf_path))
+    cerr << "Failed to read from " << tvcf_path << endl;
   hdr = vcf->readers[0].header;
   bcf_sr_seek(vcf, seq_name.c_str(), start_pos);
-
   bcf1_t *rec = bcf_init();
+  int score = 0;
   while (bcf_sr_next_line(vcf)) {
     rec = vcf->readers[0].buffer[0];
     if (rec->pos > stop_pos)
@@ -398,8 +446,6 @@ int main(int argc, char *argv[]) {
     uint8_t *ptr = fmt->p; // First sample
     int a1 = bcf_gt_allele(ptr[0]);
     int a2 = bcf_gt_allele(ptr[1]);
-
-    int score = 0;
     // FIXME: assuming we have always two alignments
     if (a1 == 1 && a2 == 0)
       score = alignments[0].score;
@@ -415,64 +461,114 @@ int main(int argc, char *argv[]) {
     // TRUTHS[idx] = score
   }
   bcf_sr_destroy(vcf);
-  bcf_destroy1(rec);
 
   // Assign scores to calls
+  vcf = bcf_sr_init();
+  vcf->require_index = 1;
+  if (!bcf_sr_add_reader(vcf, cvcf_path))
+    cerr << "Failed to read from " << cvcf_path << endl;
+  hdr = vcf->readers[0].header;
+  bcf_sr_seek(vcf, seq_name.c_str(), start_pos);
+  while (bcf_sr_next_line(vcf)) {
+    rec = vcf->readers[0].buffer[0];
+    if (rec->pos > stop_pos)
+      break;
+    bcf_unpack(rec, BCF_UN_ALL);
 
-  // clang-format off
-  /**
-    # Assign scores to calls
-    CALLS = {}
-    cvcf = VariantFile(cvcf_path)
-    for rec in cvcf:
-        refall = rec.ref
-        altalls = rec.alts
-        assert len(altalls) <= 2  # TODO: assuming diploid
-        # retrieve path by matching the sequences
-        all_paths = [None for _ in altalls]
-        for a, altall in enumerate(altalls):
-            is_ins = len(refall) < len(altall)
-            for p, s in paths:
-                if is_ins and s == altall[1:].upper():
-                    all_paths[a] = (p, is_ins)
-                    break
-                elif not is_ins and s == refall[1:].upper():
-                    all_paths[a] = (p, is_ins)
-                    break
-        # We assume that we must have found the paths since graph is built from same VCF. If not, issue could be in graph construction
-        score = 0
-        if len(all_paths) == 1:
-            assert all_paths[0] != None
-            # we assign the score if the allele is covered by at least one path
-            if check_path(all_paths[0][0], all_paths[0][1], SCORES[0][0], in_edges, out_edges) or check_path(all_paths[0][0], all_paths[0][1], SCORES[1][0], in_edges, out_edges):
-                score = (SCORES[0][1] +  SCORES[1][1])/2
-        else:
-            assert all_paths[0] != None and all_paths[1] != None
-            score1, score2 = 0, 0
-            is_covered_1_by_1 = check_path(all_paths[0][0], all_paths[0][1], SCORES[0][0], in_edges, out_edges)
-            is_covered_1_by_2 = check_path(all_paths[0][0], all_paths[0][1], SCORES[1][0], in_edges, out_edges)
-            is_covered_2_by_1 = check_path(all_paths[1][0], all_paths[1][1], SCORES[0][0], in_edges, out_edges)
-            is_covered_2_by_2 = check_path(all_paths[1][0], all_paths[1][1], SCORES[1][0], in_edges, out_edges)
-            # CHECKME: assuming that the same path cannot cover both alleles
-            if (is_covered_1_by_1 or is_covered_1_by_2) and (is_covered_2_by_1 or is_covered_2_by_2):
-                # arbitrary
-                score1 = SCORES[0][1]/2
-                score2 = SCORES[1][1]/2
-            else:
-                if is_covered_1_by_1 or is_covered_1_by_2:
-                    if is_covered_1_by_1:
-                        score1 = SCORES[0][1]/2
-                    else:
-                        score1 = SCORES[1][1]/2
-                elif is_covered_2_by_1 or is_covered_2_by_2:
-                    if is_covered_2_by_1:
-                        score2 = SCORES[0][1]/2
-                    else:
-                        score2 = SCORES[1][1]/2
-            score = score1 + score2
-        CALLS[rec.id] = score
-  **/
-  // clang-format on
+    // ID
+    char *idx(rec->d.id);
+    string seq_name = bcf_hdr_id2name(hdr, rec->rid);
+    int pos = rec->pos;
+    string refall = rec->d.allele[0];
+    transform(refall.begin(), refall.end(), refall.begin(), ::toupper);
+    vector<pair<vector<int>, bool>> alts;
+    // retrieve path by matching the sequences
+    assert(rec->n_allele <= 3); // FIXME: assuming diploid
+    for (int i = 1; i < rec->n_allele; ++i) {
+      string altall = rec->d.allele[i];
+      transform(altall.begin(), altall.end(), altall.begin(), ::toupper);
+      bool is_ins = refall.size() < altall.size();
+      for (const pair<vector<int>, string> &path : alt_paths) {
+        if (is_ins && path.second.compare(altall.substr(1)) == 0) {
+          alts.push_back(make_pair(path.first, is_ins));
+          break;
+        } else if (!is_ins && path.second.compare(refall.substr(1)) == 0) {
+          alts.push_back(make_pair(path.first, is_ins));
+          break;
+        }
+      }
+    }
+    // string quality = record->qual == "nan" ? "." : record->qual;
+
+    // We assume that we must have found the paths since graph is built from
+    // same VCF. If not, issue could be in graph construction
+
+    if (rec->n_allele == 2) {
+      // Just one alternate allele
+      assert(alts.size() == 1);
+      // we assign the score if the allele is covered by at least one path
+      if ((alts[0].second && (check_ins(alignments[0].path, alts[0].first) ||
+                              check_ins(alignments[1].path, alts[0].first))) ||
+          (!alts[0].second &&
+           (check_del(alignments[0].path, in_edges[alts[0].first.front()],
+                      out_edges[alts[0].first.back()]) ||
+            check_del(alignments[1].path, in_edges[alts[0].first.front()],
+                      out_edges[alts[0].first.back()]))))
+        score = (alignments[0].score + alignments[1].score) / 2;
+    } else {
+      // Two alternate alleles
+      assert(alts.size() == 2);
+      int score1 = 0, score2 = 0;
+      bool is_ins = alts[0].second;
+      bool is_covered_1_by_1 =
+          is_ins
+              ? check_ins(alignments[0].path, alts[0].first)
+              : check_del(alignments[0].path, in_edges[alts[0].first.front()],
+                          out_edges[alts[0].first.back()]);
+
+      bool is_covered_1_by_2 =
+          is_ins
+              ? check_ins(alignments[1].path, alts[0].first)
+              : check_del(alignments[1].path, in_edges[alts[0].first.front()],
+                          out_edges[alts[0].first.back()]);
+      bool is_covered_2_by_1 =
+          is_ins
+              ? check_ins(alignments[0].path, alts[1].first)
+              : check_del(alignments[0].path, in_edges[alts[1].first.front()],
+                          out_edges[alts[1].first.back()]);
+      bool is_covered_2_by_2 =
+          is_ins
+              ? check_ins(alignments[1].path, alts[1].first)
+              : check_del(alignments[1].path, in_edges[alts[1].first.front()],
+                          out_edges[alts[1].first.back()]);
+
+      // CHECKME: assuming that the same path cannot cover both alleles
+      if ((is_covered_1_by_1 || is_covered_1_by_2) &&
+          (is_covered_2_by_1 || is_covered_2_by_2)) {
+        // arbitrary
+        score1 = alignments[0].score / 2;
+        score2 = alignments[1].score / 2;
+      } else {
+        if (is_covered_1_by_1 || is_covered_1_by_2) {
+          if (is_covered_1_by_1)
+            score1 = alignments[0].score / 2;
+          else
+            score1 = alignments[1].score / 2;
+        } else if (is_covered_2_by_1 || is_covered_2_by_2) {
+          if (is_covered_2_by_1)
+            score2 = alignments[0].score / 2;
+          else
+            score2 = alignments[1].score / 2;
+        }
+      }
+      score = score1 + score2;
+    }
+
+    cerr << "C " << idx << " " << score << endl;
+  }
+
+  bcf_sr_destroy(vcf);
+  // bcf_destroy(rec); // CHECKME: why we don't need this?
 
   cerr << "END" << endl;
   return 0;
