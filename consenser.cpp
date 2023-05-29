@@ -54,7 +54,6 @@ string Consenser::build(char *region, char *seq) {
 void Consenser::init_data() {
   args->files = bcf_sr_init();
   args->files->require_index = 1;
-  cerr << "- " << args->fname << endl;
   if (!bcf_sr_add_reader(args->files, args->fname))
     exit(1); // error("Failed to read from %s: %s\n", !strcmp("-", args->fname)
              // ? "standard input" : args->fname,

@@ -16,7 +16,7 @@
 #include <bdsg/hash_graph.hpp>
 #include <constructor.hpp>
 // #include "gfa.hpp"
-#include <region.hpp>
+#include <region.hpp> // vg
 
 #include <align.hpp>
 #include <graphLoad.hpp>
@@ -25,6 +25,7 @@
 
 #include "argument_parser.hpp"
 #include "consenser.hpp"
+#include "graph.hpp"
 
 using namespace std;
 
@@ -90,6 +91,10 @@ int main(int argc, char *argv[]) {
   strcpy(region, opt::region.c_str());
   region[opt::region.size()] = '\0';
 
+  string seq_name;
+  int64_t start_pos = -1, stop_pos = -1;
+  vg::parse_region(region, seq_name, start_pos, stop_pos);
+
   char *tvcf_path = (char *)malloc(opt::tvcf_path.size() + 1);
   strcpy(tvcf_path, opt::tvcf_path.c_str());
   tvcf_path[opt::tvcf_path.size()] = '\0';
@@ -103,74 +108,21 @@ int main(int argc, char *argv[]) {
 
   // Extract subhaplotypes
   string hap1, hap2;
-  cerr << tvcf_path << endl;
   Consenser c1(tvcf_path, 1);
   hap1 = c1.build(region, region_seq);
   c1.destroy_data();
-  cerr << tvcf_path << endl;
   Consenser c2(tvcf_path, 2);
   hap2 = c2.build(region, region_seq);
   c2.destroy_data();
 
   // Build the graph
-  // vg construct -N -a -r {input.fa} -v {input.cvcf} -R
-  // {wildcards.region} >
-  // {output.vg} # -S -i -f ?
-  bdsg::HashGraph graph;
-
-  string seq_name;
-  int64_t start_pos = -1, stop_pos = -1;
-  vg::parse_region(region, seq_name, start_pos, stop_pos);
-
-  vg::Constructor constructor;
-  constructor.alt_paths = true;
-  constructor.allowed_vcf_names.insert(seq_name);
-  constructor.allowed_vcf_regions[seq_name] =
-      make_pair(start_pos - 1, stop_pos);
-
-  vector<string> fasta_filenames;
-  fasta_filenames.push_back(opt::fa_path);
-  vector<string> vcf_filenames;
-  vcf_filenames.push_back(opt::cvcf_path);
-  vector<string> insertion_filenames;
-
-  constructor.max_node_size = 32;
-  // clang-format off
-  /**
-     ==57670==    at 0x4848899: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
-     ==57670==    by 0x492FF9B: ??? (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
-     ==57670==    by 0x49302B9: bgzf_hopen (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
-     ==57670==    by 0x494CA9C: hts_hopen (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
-     ==57670==    by 0x494CCE7: hts_open_format (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
-     ==57670==    by 0x286AA7: Tabix::Tabix(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) (tabix.cpp:46)
-     ==57670==    by 0x18D415: openTabix (Variant.h:124)
-     ==57670==    by 0x18D415: open (Variant.h:109)
-     ==57670==    by 0x18D415: vg::Constructor::construct_graph(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::$
-     ==57670==    by 0x1C27DB: operator() (std_function.h:590)
-     ==57670==    by 0x1C27DB: vg::io::load_proto_to_graph(handlegraph::MutablePathMutableHandleGraph*, std::function<void (std::function<void (vg::Graph&)> const$
-     ==57670==    by 0x17E072: vg::Constructor::construct_graph(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::$
-     ==57670==    by 0x15954E: main (main.cpp:261)
-  **/
-  // clang-format on
-
-  constructor.construct_graph(fasta_filenames, vcf_filenames,
-                              insertion_filenames, &graph);
-
-  // Dump .gfa to stdout (optional)
-  // stringstream graph_ss;
-  // graph.serialize(graph_ss);
-  // // vg convert --gfa-out {output.vg} > {output.gfa}
-  // const vg::PathHandleGraph *graph_to_write =
-  //     dynamic_cast<const vg::PathHandleGraph *>(&graph);
-  // set<string> rgfa_paths;
-  // bool rgfa_pline = false;
-  // bool wline = true;
-  // vg::graph_to_gfa(graph_to_write, std::cout, rgfa_paths, rgfa_pline, wline);
-  // ---------------------
+  Graph graph(opt::fa_path, opt::cvcf_path, opt::region);
+  graph.build();
+  graph.analyze();
 
   // Align to the graph
   psgl::graphLoader g;
-  g.loadFromHG(graph);
+  g.loadFromHG(graph.hg);
 
   vector<string> haps;
   haps.push_back(hap1);
@@ -218,38 +170,6 @@ int main(int argc, char *argv[]) {
   //     cerr << " " << v;
   //   cerr << endl;
   // }
-
-  // get info from graph
-  vector<pair<vector<int>, string>> alt_paths;
-  map<int, vector<int>>
-      in_edges; // for each source of alt_paths, store in-nodes
-  map<int, vector<int>>
-      out_edges; // for each sink of alt_paths, store out-nodes
-  vector<string> path_names;
-  graph.for_each_path_handle([&](const bdsg::path_handle_t &p) {
-    path_names.emplace_back(graph.get_path_name(p));
-  });
-  for (int i = 0; i < graph.get_path_count(); ++i) {
-    if (path_names[i].front() != '_')
-      continue;
-    bdsg::path_handle_t ph = graph.get_path_handle(path_names[i]);
-    vector<int> path;
-    string path_seq;
-    for (bdsg::handle_t handle : graph.scan_path(ph)) {
-      path.push_back(graph.get_id(handle));
-      path_seq += graph.get_sequence(handle);
-    }
-    graph.follow_edges(graph.get_handle(path.front()), true,
-                       [&](const bdsg::handle_t &n) {
-                         in_edges[path.front()].push_back(graph.get_id(n));
-                       });
-    graph.follow_edges(graph.get_handle(path.back()), false,
-                       [&](const bdsg::handle_t &n) {
-                         out_edges[path.back()].push_back(graph.get_id(n));
-                       });
-    transform(path_seq.begin(), path_seq.end(), path_seq.begin(), ::toupper);
-    alt_paths.push_back(make_pair(path, path_seq));
-  }
 
   // Iterating over truth
   bcf_srs_t *vcf = bcf_sr_init();
@@ -316,7 +236,7 @@ int main(int argc, char *argv[]) {
       string altall = rec->d.allele[i];
       transform(altall.begin(), altall.end(), altall.begin(), ::toupper);
       bool is_ins = refall.size() < altall.size();
-      for (const pair<vector<int>, string> &path : alt_paths) {
+      for (const pair<vector<int>, string> &path : graph.alt_paths) {
         if (is_ins && path.second.compare(altall.substr(1)) == 0) {
           alts.push_back(make_pair(path.first, is_ins));
           break;
@@ -338,10 +258,10 @@ int main(int argc, char *argv[]) {
       if ((alts[0].second && (check_ins(alignments[0].path, alts[0].first) ||
                               check_ins(alignments[1].path, alts[0].first))) ||
           (!alts[0].second &&
-           (check_del(alignments[0].path, in_edges[alts[0].first.front()],
-                      out_edges[alts[0].first.back()]) ||
-            check_del(alignments[1].path, in_edges[alts[0].first.front()],
-                      out_edges[alts[0].first.back()]))))
+           (check_del(alignments[0].path, graph.in_edges[alts[0].first.front()],
+                      graph.out_edges[alts[0].first.back()]) ||
+            check_del(alignments[1].path, graph.in_edges[alts[0].first.front()],
+                      graph.out_edges[alts[0].first.back()]))))
         score = (alignments[0].score + alignments[1].score) / 2;
     } else {
       // Two alternate alleles
@@ -349,26 +269,26 @@ int main(int argc, char *argv[]) {
       int score1 = 0, score2 = 0;
       bool is_ins = alts[0].second;
       bool is_covered_1_by_1 =
-          is_ins
-              ? check_ins(alignments[0].path, alts[0].first)
-              : check_del(alignments[0].path, in_edges[alts[0].first.front()],
-                          out_edges[alts[0].first.back()]);
+          is_ins ? check_ins(alignments[0].path, alts[0].first)
+                 : check_del(alignments[0].path,
+                             graph.in_edges[alts[0].first.front()],
+                             graph.out_edges[alts[0].first.back()]);
 
       bool is_covered_1_by_2 =
-          is_ins
-              ? check_ins(alignments[1].path, alts[0].first)
-              : check_del(alignments[1].path, in_edges[alts[0].first.front()],
-                          out_edges[alts[0].first.back()]);
+          is_ins ? check_ins(alignments[1].path, alts[0].first)
+                 : check_del(alignments[1].path,
+                             graph.in_edges[alts[0].first.front()],
+                             graph.out_edges[alts[0].first.back()]);
       bool is_covered_2_by_1 =
-          is_ins
-              ? check_ins(alignments[0].path, alts[1].first)
-              : check_del(alignments[0].path, in_edges[alts[1].first.front()],
-                          out_edges[alts[1].first.back()]);
+          is_ins ? check_ins(alignments[0].path, alts[1].first)
+                 : check_del(alignments[0].path,
+                             graph.in_edges[alts[1].first.front()],
+                             graph.out_edges[alts[1].first.back()]);
       bool is_covered_2_by_2 =
-          is_ins
-              ? check_ins(alignments[1].path, alts[1].first)
-              : check_del(alignments[1].path, in_edges[alts[1].first.front()],
-                          out_edges[alts[1].first.back()]);
+          is_ins ? check_ins(alignments[1].path, alts[1].first)
+                 : check_del(alignments[1].path,
+                             graph.in_edges[alts[1].first.front()],
+                             graph.out_edges[alts[1].first.back()]);
 
       // CHECKME: assuming that the same path cannot cover both alleles
       if ((is_covered_1_by_1 || is_covered_1_by_2) &&
