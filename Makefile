@@ -12,7 +12,7 @@ LIBS=-L./vg/lib -lvg -lvgio -lhts -lbdsg -lhandlegraph -lvcflib -lprotobuf -lxg 
 all: sveval
 
 # vg/obj/region.o
-sveval: bcftools/smpl_ilist.o bcftools/filter.o bcftools/smpl_ilist.o bcftools/consensus.o consenser.o graph.o aligner.o main.o
+sveval: bcftools/smpl_ilist.o bcftools/filter.o bcftools/smpl_ilist.o bcftools/consensus.o consenser.o graph.o aligner.o tscorer.o cscorer.o main.o
 	@echo "* Linking $@"
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
 
