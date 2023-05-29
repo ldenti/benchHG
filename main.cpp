@@ -1,28 +1,209 @@
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <math.h>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 #include <zlib.h>
 
+#include <htslib/faidx.h>
+#include <htslib/kstring.h>
+#include <htslib/synced_bcf_reader.h>
+#include <htslib/vcf.h>
+
+#include <bcftools/filter.h>
+#include <bcftools/rbuf.h>
+#include <bcftools/regidx.h>
+extern "C" {
+#include <bcftools/smpl_ilist.h>
+}
+
 #include "bdsg/hash_graph.hpp"
 #include "constructor.hpp"
-#include "htslib/faidx.h"
-// #include "io/save_handle_graph.hpp"
-#include "gfa.hpp"
-#include "kseq.h"
+// #include "gfa.hpp"
 #include "region.hpp"
 
 #include "align.hpp"
 #include "graphLoad.hpp"
 
-KSEQ_INIT(gzFile, gzread)
-
 using namespace std;
 
+struct Alignment {
+  int id;
+  int l;
+  int il;
+  string cigar;
+  vector<int> path;
+  float score;
+
+  void set_score() {
+    map<char, int> OPs;
+    OPs['='] = 0;
+    OPs['X'] = 0;
+    OPs['I'] = 0;
+    OPs['D'] = 0;
+    regex word_regex("([0-9]+[=XID])");
+    auto words_begin = sregex_iterator(cigar.begin(), cigar.end(), word_regex);
+    auto words_end = std::sregex_iterator();
+    for (sregex_iterator i = words_begin; i != words_end; ++i) {
+      smatch match = *i;
+      string match_str = match.str();
+      char op = match_str.back();
+      match_str.pop_back();
+      int l = stoi(match_str);
+      OPs[op] += l;
+    }
+    il = OPs['X'] + OPs['='] + OPs['I'];
+    score = 1 - (OPs['I'] + OPs['D'] + OPs['X'] + abs(l - il)) / l; // CHECKME
+  }
+};
+
+typedef struct {
+  int num;            // number of ungapped blocks in this chain
+  int *block_lengths; // length of the ungapped blocks in this chain
+  int *ref_gaps; // length of the gaps on the reference sequence between blocks
+  int *
+      alt_gaps; // length of the gaps on the alternative sequence between blocks
+  int ori_pos;
+  int ref_last_block_ori; // start position on the reference sequence of the
+                          // following ungapped block (0-based)
+  int alt_last_block_ori; // start position on the alternative sequence of the
+                          // following ungapped block (0-based)
+} chain_t;
+
+#define MASK_LC 1
+#define MASK_UC 2
+#define MASK_SKIP(x) (((x)->with != MASK_LC && (x)->with != MASK_UC) ? 1 : 0)
+typedef struct {
+  char *fname, with;
+  regidx_t *idx;
+  regitr_t *itr;
+} mask_t;
+
+typedef struct {
+  kstring_t fa_buf; // buffered reference sequence
+  int fa_ori_pos;   // start position of the fa_buffer (wrt original sequence)
+  int fa_frz_pos; // protected position to avoid conflicting variants (last pos
+                  // for SNPs/ins)
+  int fa_mod_off; // position difference of fa_frz_pos in the ori and modified
+                  // sequence (ins positive)
+  int fa_frz_mod; // the fa_buf offset of the protected fa_frz_pos position,
+                  // includes the modified sequence
+  int fa_end_pos; // region's end position in the original sequence
+  int fa_length;  // region's length in the original sequence (in case end_pos
+                  // not provided in the FASTA header)
+  int fa_case;    // output upper case or lower case: TO_UPPER|TO_LOWER
+  int fa_src_pos; // last genomic coordinate read from the input fasta (0-based)
+  char prev_base; // this is only to validate the REF allele in the VCF - the
+                  // modified fa_buf cannot be used for inserts following
+                  // deletions, see 600#issuecomment-383186778
+  int prev_base_pos; // the position of prev_base
+  int prev_is_insert;
+
+  rbuf_t vcf_rbuf;
+  bcf1_t **vcf_buf;
+  int nvcf_buf, rid;
+  char *chr, *chr_prefix;
+
+  mask_t *mask;
+  int nmask;
+
+  int chain_id;   // chain_id, to provide a unique ID to each chain in the chain
+                  // output
+  chain_t *chain; // chain structure to store the sequence of ungapped blocks
+                  // between the ref and alt sequences Note that the chain is
+                  // re-initialised for each chromosome/seq_region
+
+  filter_t *filter;
+  char *filter_str;
+  int filter_logic; // include or exclude sites which match the filters? One of
+                    // FLT_INCLUDE/FLT_EXCLUDE
+
+  bcf_srs_t *files;
+  bcf_hdr_t *hdr;
+  FILE *fp_out;
+  FILE *fp_chain;
+  char **argv;
+  int argc, output_iupac, iupac_GTs, haplotype, allele, isample, napplied;
+  uint8_t *iupac_bitmask, *iupac_als;
+  int miupac_bitmask, miupac_als;
+  char *fname, *ref_fname, *sample, *sample_fname, *output_fname, *mask_fname,
+      *chain_fname, missing_allele, absent_allele;
+  char mark_del, mark_ins, mark_snv;
+  smpl_ilist_t *smpl;
+} args_t;
+
 extern "C" {
-int main_consensus(int argc, char *argv[]);
+void init_region(args_t *args, char *line);
+void apply_variant(args_t *args, bcf1_t *rec);
+bcf1_t **next_vcf_line(args_t *args);
+}
+
+void get_consensus(char *region, char *seq, args_t *args) {
+  init_region(args, region);
+
+  args->fa_length = strlen(seq);
+  args->fa_src_pos = strlen(seq);
+
+  // determine if uppercase or lowercase is used in this fasta file
+  args->fa_case = toupper(seq[0]) == seq[0] ? 1 : 0;
+
+  kputs(seq, &args->fa_buf);
+
+  bcf1_t **rec_ptr = NULL;
+  while (args->rid >= 0 && (rec_ptr = next_vcf_line(args))) {
+    bcf1_t *rec = *rec_ptr;
+    if (args->fa_end_pos && rec->pos > args->fa_end_pos)
+      break;
+
+    // clang-format off
+    /**
+       ==57670== Conditional jump or move depends on uninitialised value(s)
+       ==57670==    at 0x484ED28: strlen (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+       ==57670==    by 0x4F23DB3: std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(char const*, std::allocator<char> co$
+       ==57670==    by 0x159297: main (main.cpp:232)
+       ==57670==  Uninitialised value was created by a heap allocation
+       ==57670==    at 0x484DCD3: realloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+       ==57670==    by 0x154FC2: ks_resize (kstring.h:160)
+       ==57670==    by 0x154FC2: ks_resize (kstring.h:155)
+       ==57670==    by 0x154FC2: apply_variant (consensus.c:1002)
+       ==57670==    by 0x158DA2: get_consensus(char*, char*, args_t*) (main.cpp:164)
+       ==57670==    by 0x15920A: main (main.cpp:227)
+    **/
+    // clang-format on
+    apply_variant(args, rec);
+  }
+}
+
+static void init_data(args_t *args) {
+  args->files = bcf_sr_init();
+  args->files->require_index = 1;
+  if (!bcf_sr_add_reader(args->files, args->fname))
+    exit(1); // error("Failed to read from %s: %s\n", !strcmp("-", args->fname)
+             // ? "standard input" : args->fname,
+             // bcf_sr_strerror(args->files->errnum));
+  args->hdr = args->files->readers[0].header;
+  args->smpl = smpl_ilist_init(args->hdr, NULL, 0, SMPL_NONE | SMPL_VERBOSE);
+  args->isample = args->smpl->idx[0];
+  rbuf_init(&args->vcf_rbuf, 100);
+  args->vcf_buf = (bcf1_t **)calloc(args->vcf_rbuf.m, sizeof(bcf1_t *));
+  args->rid = -1;
+}
+
+static void destroy_data(args_t *args) {
+  if (args->smpl)
+    smpl_ilist_destroy(args->smpl);
+  bcf_sr_destroy(args->files);
+  int i;
+  for (i = 0; i < args->vcf_rbuf.m; i++)
+    if (args->vcf_buf[i])
+      bcf_destroy1(args->vcf_buf[i]);
+  free(args->vcf_buf);
+  free(args->fa_buf.s);
+  free(args->chr);
 }
 
 int main(int argc, char *argv[]) {
@@ -36,62 +217,42 @@ int main(int argc, char *argv[]) {
   // Extract region from .fa
   hts_pos_t seq_len;
   char *region_seq = fai_fetch64(fai, region, &seq_len);
+  fai_destroy(fai);
 
-  // Store region to file
-  char *region_fa_path = (char *)malloc(strlen(region) + 4);
-  strcpy(region_fa_path, region);
-  strcat(region_fa_path, ".fa");
-  ofstream outfa(region_fa_path);
-  outfa << ">" << region << "\n" << region_seq << endl;
-  outfa.close();
+  // Extract subhaplotypes
+  args_t *args = (args_t *)calloc(1, sizeof(args_t));
+  args->haplotype = 1;
+  args->fname = vcf_path;
+  init_data(args);
+  get_consensus(region, region_seq, args);
+  cerr << "Applied " << args->napplied << " variants" << endl;
+  // char *hap1 = (char *)malloc(args->fa_buf.l + 1);
+  // strcpy(hap1, args->fa_buf.s);
+  // hap1[args->fa_buf.l] = '\0';
+  string hap1(args->fa_buf.s);
+  destroy_data(args);
+  free(args);
+
+  args = (args_t *)calloc(1, sizeof(args_t));
+  args->haplotype = 2;
+  args->fname = vcf_path;
+  init_data(args);
+  get_consensus(region, region_seq, args);
+  cerr << "Applied " << args->napplied << " variants" << endl;
+  // char *hap2 = (char *)malloc(args->fa_buf.l + 1);
+  // strcpy(hap2, args->fa_buf.s);
+  // hap2[args->fa_buf.l] = '\0';
+  string hap2(args->fa_buf.s);
+  destroy_data(args);
+  free(args);
+
   free(region_seq);
-  outfa.close();
-
-  // Extract subhaplotypes and store to files
-  char *hap1_path = (char *)malloc(strlen(region) + 6);
-  strcpy(hap1_path, region);
-  strcat(hap1_path, ".1.fa");
-  char *cmd1[] = {"consensus",    "-H",     "1",  "-f",
-                  region_fa_path, vcf_path, "-o", hap1_path};
-  main_consensus(8, cmd1);
-
-  char *hap2_path = (char *)malloc(strlen(region) + 6);
-  strcpy(hap2_path, region);
-  strcat(hap2_path, ".2.fa");
-  char *cmd2[] = {"consensus",    "-H",     "2",  "-f",
-                  region_fa_path, vcf_path, "-o", hap2_path};
-  optind = 1;
-  main_consensus(8, cmd2);
-
-  // Read subhaplotypes
-  gzFile fp = gzopen(hap1_path, "r");
-  kseq_t *seq = kseq_init(fp);
-  int l;
-  char *hap1;
-  while ((l = kseq_read(seq)) >= 0) {
-    hap1 = (char *)malloc(l);
-    strcpy(hap1, seq->seq.s);
-  }
-  gzclose(fp);
-
-  fp = gzopen(hap2_path, "r");
-  seq = kseq_init(fp);
-  char *hap2;
-  while ((l = kseq_read(seq)) >= 0) {
-    hap2 = (char *)malloc(l);
-    strcpy(hap2, seq->seq.s);
-  }
-  gzclose(fp);
-  kseq_destroy(seq);
-
-  free(region_fa_path);
-  free(hap1_path);
-  free(hap2_path);
 
   // Build the graph
-  // vg construct -N -a -r {input.fa} -v {input.cvcf} -R {wildcards.region} >
+  // vg construct -N -a -r {input.fa} -v {input.cvcf} -R
+  // {wildcards.region} >
   // {output.vg} # -S -i -f ?
-  bdsg::HashGraph constructed;
+  bdsg::HashGraph graph;
 
   string seq_name;
   int64_t start_pos = -1, stop_pos = -1;
@@ -110,15 +271,31 @@ int main(int argc, char *argv[]) {
   vector<string> insertion_filenames;
 
   constructor.max_node_size = 32;
-  constructor.construct_graph(fasta_filenames, vcf_filenames,
-                              insertion_filenames, &constructed);
-  stringstream ss;
-  constructed.serialize(ss);
-  // cout << ss.str();
+  // clang-format off
+  /**
+     ==57670==    at 0x4848899: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+     ==57670==    by 0x492FF9B: ??? (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
+     ==57670==    by 0x49302B9: bgzf_hopen (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
+     ==57670==    by 0x494CA9C: hts_hopen (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
+     ==57670==    by 0x494CCE7: hts_open_format (in /usr/lib/x86_64-linux-gnu/libhts.so.1.13+ds)
+     ==57670==    by 0x286AA7: Tabix::Tabix(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) (tabix.cpp:46)
+     ==57670==    by 0x18D415: openTabix (Variant.h:124)
+     ==57670==    by 0x18D415: open (Variant.h:109)
+     ==57670==    by 0x18D415: vg::Constructor::construct_graph(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::$
+     ==57670==    by 0x1C27DB: operator() (std_function.h:590)
+     ==57670==    by 0x1C27DB: vg::io::load_proto_to_graph(handlegraph::MutablePathMutableHandleGraph*, std::function<void (std::function<void (vg::Graph&)> const$
+     ==57670==    by 0x17E072: vg::Constructor::construct_graph(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::$
+     ==57670==    by 0x15954E: main (main.cpp:261)
+  **/
+  // clang-format on
 
+  constructor.construct_graph(fasta_filenames, vcf_filenames,
+                              insertion_filenames, &graph);
+  // stringstream graph_ss;
+  // graph.serialize(graph_ss);
   // vg convert --gfa-out {output.vg} > {output.gfa}
   // const vg::PathHandleGraph *graph_to_write =
-  //     dynamic_cast<const vg::PathHandleGraph *>(&constructed);
+  //     dynamic_cast<const vg::PathHandleGraph *>(&graph);
   // set<string> rgfa_paths;
   // bool rgfa_pline = false;
   // bool wline = true;
@@ -126,37 +303,56 @@ int main(int argc, char *argv[]) {
 
   // Align to the graph
   psgl::graphLoader g;
-  g.loadFromHG(constructed);
+  g.loadFromHG(graph);
 
   vector<string> haps;
   haps.push_back(hap1);
   haps.push_back(hap2);
+
   vector<psgl::ContigInfo> qmetadata;
-  qmetadata.push_back(psgl::ContigInfo{"hap1", strlen(hap1)});
-  qmetadata.push_back(psgl::ContigInfo{"hap2", strlen(hap2)});
+  qmetadata.push_back(psgl::ContigInfo{"hap1", hap1.size()});
+  qmetadata.push_back(psgl::ContigInfo{"hap2", hap2.size()});
 
   vector<psgl::BestScoreInfo> bestScoreVector;
-  psgl::Parameters parameters = {"", "", "", "", 4, 1, 1, 1, 1};
+  psgl::Parameters parameters = {"", "", "", "", 1, 1, 1, 1, 1};
+
+  // clang-format off
+  /**
+     ==57670==    at 0x48487A9: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+     ==57670==    by 0x50F58AC: ??? (in /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0)
+     ==57670==    by 0x5106ACC: ??? (in /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0)
+     ==57670==    by 0x50FCA10: GOMP_parallel (in /usr/lib/x86_64-linux-gnu/libgomp.so.1.0.0)
+     ==57670==    by 0x15750A: psgl::alignToDAGLocal_Phase1_scalar(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, st$
+     ==57670==    by 0x157DC3: psgl::alignToDAGLocal(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<s$
+     ==57670==    by 0x15984C: main (main.cpp:287)
+   **/
+  // clang-format on
+
   alignToDAGLocal(haps, g.diCharGraph, parameters, bestScoreVector);
 
+  vector<Alignment> alignments;
   for (auto &e : bestScoreVector) {
-    cerr << e.qryId << " " << e.cigar << " ";
-    std::vector<uint> path;
+    vector<int> path;
     path.push_back(g.diCharGraph.originalVertexId[e.refColumnStart].first);
-    cerr << g.diCharGraph.originalVertexId[e.refColumnStart].first;
     for (const int32_t c : e.refColumns) {
       if (c >= e.refColumnStart && c <= e.refColumnEnd) {
         int32_t n = g.diCharGraph.originalVertexId[c].first;
-        if (n != path.back()) {
-          cerr << " " << n;
+        if (n != path.back())
           path.push_back(n);
-        }
       }
     }
-    cerr << endl;
+    Alignment a = {e.qryId, haps[e.qryId].size(), 0, e.cigar, path};
+    a.set_score();
+    alignments.push_back(a);
   }
 
-  free(hap1);
-  free(hap2);
+  // for (const auto &a : alignments) {
+  //   cerr << a.id << " " << a.cigar << " " << a.score << " |";
+  //   for (const auto &v : a.path)
+  //     cerr << " " << v;
+  //   cerr << endl;
+  // }
+
+  cerr << "END" << endl;
   return 0;
 }
