@@ -1,9 +1,7 @@
-[submodule "samtools"]
-	path = samtools
-	url = https://github.com/samtools/samtools.git
 [submodule "htslib"]
 	path = htslib
 	url = https://github.com/samtools/htslib.git
+	ignore = dirty
 [submodule "bcftools"]
 	path = bcftools
 	url = https://github.com/samtools/bcftools.git
@@ -13,9 +11,7 @@
 [submodule "vg"]
 	path = vg
 	url = https://github.com/vgteam/vg.git
-[submodule "BSlogger"]
-	path = BSlogger
-	url = https://github.com/bschiffthaler/BSlogger.git
+	ignore = dirty
 [submodule "spdlog"]
 	path = spdlog
 	url = https://github.com/gabime/spdlog.git
