@@ -1,5 +1,5 @@
 diff --git a/src/include/align.hpp b/src/include/align.hpp
-index e9ea48a..955edcb 100644
+index e9ea48a..1667a99 100644
 --- a/src/include/align.hpp
 +++ b/src/include/align.hpp
 @@ -11,829 +11,758 @@
@@ -205,10 +205,10 @@ index e9ea48a..955edcb 100644
  
 -    std::cout << "TIMER, psgl::alignToDAGLocal_Phase1_scalar, CPU cycles spent in phase 1 = " << tick2 - tick1 
 -      << ", estimated time (s) = " << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
-+  std::cout << "TIMER, psgl::alignToDAGLocal_Phase1_scalar, CPU cycles spent "
-+               "in phase 1 = "
-+            << tick2 - tick1 << ", estimated time (s) = "
-+            << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
++  // std::cout << "TIMER, psgl::alignToDAGLocal_Phase1_scalar, CPU cycles spent "
++  //              "in phase 1 = "
++  //           << tick2 - tick1 << ", estimated time (s) = "
++  //           << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
  
  #ifdef VTUNE_SUPPORT
 -    __itt_pause();
@@ -418,10 +418,10 @@ index e9ea48a..955edcb 100644
  
 -    std::cout << "TIMER, psgl::alignToDAGLocal_Phase1_rev_scalar, CPU cycles spent in phase 1-R = " << tick2 - tick1 
 -      << ", estimated time (s) = " << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
-+  std::cout << "TIMER, psgl::alignToDAGLocal_Phase1_rev_scalar, CPU cycles "
-+               "spent in phase 1-R = "
-+            << tick2 - tick1 << ", estimated time (s) = "
-+            << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
++  // std::cout << "TIMER, psgl::alignToDAGLocal_Phase1_rev_scalar, CPU cycles "
++  //              "spent in phase 1-R = "
++  //           << tick2 - tick1 << ", estimated time (s) = "
++  //           << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
  
  #ifdef VTUNE_SUPPORT
 -    __itt_pause();
@@ -918,9 +918,9 @@ index e9ea48a..955edcb 100644
 -    assert (outputBestScoreVector.empty());
 -
 -
-+  std::cout
-+      << "TIMER, psgl::alignToDAGLocal_Phase2, individual thread timings (s) : "
-+      << printStats(threadTimings) << "\n";
++  // std::cout
++  //     << "TIMER, psgl::alignToDAGLocal_Phase2, individual thread timings (s) : "
++  //     << printStats(threadTimings) << "\n";
 +}
  
 -    //
@@ -1036,9 +1036,9 @@ index e9ea48a..955edcb 100644
 -        << ", estimated time (s) = " << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << std::endl;
 -    }
 +    auto tick2 = __rdtsc();
-+    std::cout << "TIMER, psgl::alignToDAG, CPU cycles spent in phase 1  = "
-+              << tick2 - tick1 << ", estimated time (s) = "
-+              << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << std::endl;
++    // std::cout << "TIMER, psgl::alignToDAG, CPU cycles spent in phase 1  = "
++    //           << tick2 - tick1 << ", estimated time (s) = "
++    //           << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << std::endl;
 +  }
  
  #ifdef DEBUG
@@ -1187,9 +1187,9 @@ index e9ea48a..955edcb 100644
 -        << ", estimated time (s) = " << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << std::endl;
 -    }
 +    auto tick2 = __rdtsc();
-+    std::cout << "TIMER, psgl::alignToDAG, CPU cycles spent in phase 1-R  = "
-+              << tick2 - tick1 << ", estimated time (s) = "
-+              << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << std::endl;
++    // std::cout << "TIMER, psgl::alignToDAG, CPU cycles spent in phase 1-R  = "
++    //           << tick2 - tick1 << ", estimated time (s) = "
++    //           << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << std::endl;
 +  }
  
  #ifdef DEBUG
@@ -1377,9 +1377,9 @@ index e9ea48a..955edcb 100644
 -          psgl::seqUtils::makeUpperCase(seq->seq.s, len);
 -          reads.push_back(seq->seq.s);
 +    auto tick2 = __rdtsc();
-+    std::cout << "TIMER, psgl::alignToDAG, CPU cycles spent in phase 2  = "
-+              << tick2 - tick1 << ", estimated time (s) = "
-+              << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
++    // std::cout << "TIMER, psgl::alignToDAG, CPU cycles spent in phase 2  = "
++    //           << tick2 - tick1 << ", estimated time (s) = "
++    //           << (tick2 - tick1) * 1.0 / ASSUMED_CPU_FREQ << "\n";
 +  }
 +}
  
@@ -1438,6 +1438,34 @@ index e9ea48a..955edcb 100644
 +} // namespace psgl
 +
  #endif
+diff --git a/src/include/csr.hpp b/src/include/csr.hpp
+index ec71315..3f027bb 100644
+--- a/src/include/csr.hpp
++++ b/src/include/csr.hpp
+@@ -339,8 +339,8 @@ namespace psgl
+ 
+         topologicalSort(order); 
+ 
+-        std::cout << "INFO, psgl::CSR_container::sort, topological sort computed, bandwidth = " << directedBandwidth(order) << std::endl;
+-        std::cout << "INFO, psgl::CSR_container::sort, relabeling graph based on the computed order" << std::endl;
++        // std::cout << "INFO, psgl::CSR_container::sort, topological sort computed, bandwidth = " << directedBandwidth(order) << std::endl;
++        // std::cout << "INFO, psgl::CSR_container::sort, relabeling graph based on the computed order" << std::endl;
+ 
+         //Sorted position to vertex id mapping (reverse order)
+         //preserve the old IDs before relabeling for final output reporting
+diff --git a/src/include/csr_char.hpp b/src/include/csr_char.hpp
+index d1c1f21..91e8100 100644
+--- a/src/include/csr_char.hpp
++++ b/src/include/csr_char.hpp
+@@ -137,7 +137,7 @@ namespace psgl
+         this->verify();
+ #endif
+ 
+-        std::cout << "INFO, psgl::CSR_char_container::build, graph converted to CSR format with character labels, n = " << this->numVertices << ", m = " << this->numEdges << std::endl;
++        // std::cout << "INFO, psgl::CSR_char_container::build, graph converted to CSR format with character labels, n = " << this->numVertices << ", m = " << this->numEdges << std::endl;
+       }
+ 
+       /**
 diff --git a/src/include/graphLoad.hpp b/src/include/graphLoad.hpp
 index 45ec88c..a1be46b 100644
 --- a/src/include/graphLoad.hpp
