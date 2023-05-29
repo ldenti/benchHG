@@ -21,13 +21,17 @@ extern "C" {
 #include <bcftools/smpl_ilist.h>
 }
 
-#include "bdsg/hash_graph.hpp"
-#include "constructor.hpp"
+#include <bdsg/hash_graph.hpp>
+#include <constructor.hpp>
 // #include "gfa.hpp"
-#include "region.hpp"
+#include <region.hpp>
 
-#include "align.hpp"
-#include "graphLoad.hpp"
+#include <align.hpp>
+#include <graphLoad.hpp>
+
+#include <spdlog/spdlog.h>
+
+#include "argument_parser.hpp"
 
 using namespace std;
 
@@ -231,15 +235,20 @@ bool check_del(const vector<int> &true_path, const vector<int> &pre_nodes,
 }
 
 int main(int argc, char *argv[]) {
-  char *fa_path = argv[1];
-  char *tvcf_path = argv[2];
-  char *cvcf_path = argv[3];
-  char *region = argv[4];
+  spdlog::info("Welcome to spdlog!");
+  parse_arguments(argc, argv);
 
-  // Create or load the .fai
-  faidx_t *fai = fai_load3_format(fa_path, NULL, NULL, FAI_CREATE, FAI_FASTA);
+  char *region = (char *)malloc(opt::region.size() + 1);
+  strcpy(region, opt::region.c_str());
+  region[opt::region.size()] = '\0';
 
-  // Extract region from .fa
+  char *tvcf_path = (char *)malloc(opt::tvcf_path.size() + 1);
+  strcpy(tvcf_path, opt::tvcf_path.c_str());
+  tvcf_path[opt::tvcf_path.size()] = '\0';
+
+  // Extract region from .fai
+  faidx_t *fai =
+      fai_load3_format(opt::fa_path.c_str(), NULL, NULL, FAI_CREATE, FAI_FASTA);
   hts_pos_t seq_len;
   char *region_seq = fai_fetch64(fai, region, &seq_len);
   fai_destroy(fai);
@@ -254,7 +263,8 @@ int main(int argc, char *argv[]) {
   // char *hap1 = (char *)malloc(args->fa_buf.l + 1);
   // strcpy(hap1, args->fa_buf.s);
   // hap1[args->fa_buf.l] = '\0';
-  string hap1(args->fa_buf.s);
+  string hap1(args->fa_buf.s, args->fa_buf.l);
+  transform(hap1.begin(), hap1.end(), hap1.begin(), ::toupper);
   destroy_data(args);
   free(args);
 
@@ -267,11 +277,10 @@ int main(int argc, char *argv[]) {
   // char *hap2 = (char *)malloc(args->fa_buf.l + 1);
   // strcpy(hap2, args->fa_buf.s);
   // hap2[args->fa_buf.l] = '\0';
-  string hap2(args->fa_buf.s);
+  string hap2(args->fa_buf.s, args->fa_buf.l);
+  transform(hap2.begin(), hap2.end(), hap2.begin(), ::toupper);
   destroy_data(args);
   free(args);
-
-  free(region_seq);
 
   // Build the graph
   // vg construct -N -a -r {input.fa} -v {input.cvcf} -R
@@ -290,9 +299,9 @@ int main(int argc, char *argv[]) {
       make_pair(start_pos - 1, stop_pos);
 
   vector<string> fasta_filenames;
-  fasta_filenames.push_back(fa_path);
+  fasta_filenames.push_back(opt::fa_path);
   vector<string> vcf_filenames;
-  vcf_filenames.push_back(cvcf_path);
+  vcf_filenames.push_back(opt::cvcf_path);
   vector<string> insertion_filenames;
 
   constructor.max_node_size = 32;
@@ -413,23 +422,12 @@ int main(int argc, char *argv[]) {
     alt_paths.push_back(make_pair(path, path_seq));
   }
 
-  // clang-format off
-  // in_edges = {path[0]: [] for path, _ in paths}
-  //   out_edges = {path[-1]: [] for path, _ in paths}
-  //   for line in open(gfa_path):
-  //       if line.startswith("L"):
-  //           _, id1, _, id2, _, _ = line.strip("\n").split("\t")
-  //           if id1 in out_edges:
-  //               out_edges[id1].append(id2)
-  //           if id2 in in_edges:
-  //               in_edges[id2].append(id1)
-  // clang-format on
   // Iterating over truth
   bcf_srs_t *vcf = bcf_sr_init();
   vcf->require_index = 1;
   bcf_hdr_t *hdr;
-  if (!bcf_sr_add_reader(vcf, tvcf_path))
-    cerr << "Failed to read from " << tvcf_path << endl;
+  if (!bcf_sr_add_reader(vcf, opt::tvcf_path.c_str()))
+    cerr << "Failed to read from " << opt::tvcf_path << endl;
   hdr = vcf->readers[0].header;
   bcf_sr_seek(vcf, seq_name.c_str(), start_pos);
   bcf1_t *rec = bcf_init();
@@ -447,6 +445,7 @@ int main(int argc, char *argv[]) {
     int a1 = bcf_gt_allele(ptr[0]);
     int a2 = bcf_gt_allele(ptr[1]);
     // FIXME: assuming we have always two alignments
+    score = 0;
     if (a1 == 1 && a2 == 0)
       score = alignments[0].score;
     else if (a1 == 0 && a2 == 1)
@@ -465,8 +464,8 @@ int main(int argc, char *argv[]) {
   // Assign scores to calls
   vcf = bcf_sr_init();
   vcf->require_index = 1;
-  if (!bcf_sr_add_reader(vcf, cvcf_path))
-    cerr << "Failed to read from " << cvcf_path << endl;
+  if (!bcf_sr_add_reader(vcf, opt::cvcf_path.c_str()))
+    cerr << "Failed to read from " << opt::cvcf_path << endl;
   hdr = vcf->readers[0].header;
   bcf_sr_seek(vcf, seq_name.c_str(), start_pos);
   while (bcf_sr_next_line(vcf)) {
@@ -502,7 +501,7 @@ int main(int argc, char *argv[]) {
 
     // We assume that we must have found the paths since graph is built from
     // same VCF. If not, issue could be in graph construction
-
+    score = 0;
     if (rec->n_allele == 2) {
       // Just one alternate allele
       assert(alts.size() == 1);
@@ -563,13 +562,14 @@ int main(int argc, char *argv[]) {
       }
       score = score1 + score2;
     }
-
     cerr << "C " << idx << " " << score << endl;
   }
 
   bcf_sr_destroy(vcf);
   // bcf_destroy(rec); // CHECKME: why we don't need this?
 
-  // cerr << "END" << endl;
+  free(region);
+  free(region_seq);
+
   return 0;
 }

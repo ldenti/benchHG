@@ -13,3 +13,9 @@
 [submodule "vg"]
 	path = vg
 	url = https://github.com/vgteam/vg.git
+[submodule "BSlogger"]
+	path = BSlogger
+	url = https://github.com/bschiffthaler/BSlogger.git
+[submodule "spdlog"]
+	path = spdlog
+	url = https://github.com/gabime/spdlog.git
