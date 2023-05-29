@@ -10,16 +10,8 @@
 #include <zlib.h>
 
 #include <htslib/faidx.h>
-#include <htslib/kstring.h>
 #include <htslib/synced_bcf_reader.h>
 #include <htslib/vcf.h>
-
-#include <bcftools/filter.h>
-#include <bcftools/rbuf.h>
-#include <bcftools/regidx.h>
-extern "C" {
-#include <bcftools/smpl_ilist.h>
-}
 
 #include <bdsg/hash_graph.hpp>
 #include <constructor.hpp>
@@ -32,6 +24,7 @@ extern "C" {
 #include <spdlog/spdlog.h>
 
 #include "argument_parser.hpp"
+#include "consenser.hpp"
 
 using namespace std;
 
@@ -64,151 +57,6 @@ struct Alignment {
     score = 1 - (OPs['I'] + OPs['D'] + OPs['X'] + abs(l - il)) / l; // CHECKME
   }
 };
-
-typedef struct {
-  int num;            // number of ungapped blocks in this chain
-  int *block_lengths; // length of the ungapped blocks in this chain
-  int *ref_gaps; // length of the gaps on the reference sequence between blocks
-  int *
-      alt_gaps; // length of the gaps on the alternative sequence between blocks
-  int ori_pos;
-  int ref_last_block_ori; // start position on the reference sequence of the
-                          // following ungapped block (0-based)
-  int alt_last_block_ori; // start position on the alternative sequence of the
-                          // following ungapped block (0-based)
-} chain_t;
-
-#define MASK_LC 1
-#define MASK_UC 2
-#define MASK_SKIP(x) (((x)->with != MASK_LC && (x)->with != MASK_UC) ? 1 : 0)
-typedef struct {
-  char *fname, with;
-  regidx_t *idx;
-  regitr_t *itr;
-} mask_t;
-
-typedef struct {
-  kstring_t fa_buf; // buffered reference sequence
-  int fa_ori_pos;   // start position of the fa_buffer (wrt original sequence)
-  int fa_frz_pos; // protected position to avoid conflicting variants (last pos
-                  // for SNPs/ins)
-  int fa_mod_off; // position difference of fa_frz_pos in the ori and modified
-                  // sequence (ins positive)
-  int fa_frz_mod; // the fa_buf offset of the protected fa_frz_pos position,
-                  // includes the modified sequence
-  int fa_end_pos; // region's end position in the original sequence
-  int fa_length;  // region's length in the original sequence (in case end_pos
-                  // not provided in the FASTA header)
-  int fa_case;    // output upper case or lower case: TO_UPPER|TO_LOWER
-  int fa_src_pos; // last genomic coordinate read from the input fasta (0-based)
-  char prev_base; // this is only to validate the REF allele in the VCF - the
-                  // modified fa_buf cannot be used for inserts following
-                  // deletions, see 600#issuecomment-383186778
-  int prev_base_pos; // the position of prev_base
-  int prev_is_insert;
-
-  rbuf_t vcf_rbuf;
-  bcf1_t **vcf_buf;
-  int nvcf_buf, rid;
-  char *chr, *chr_prefix;
-
-  mask_t *mask;
-  int nmask;
-
-  int chain_id;   // chain_id, to provide a unique ID to each chain in the chain
-                  // output
-  chain_t *chain; // chain structure to store the sequence of ungapped blocks
-                  // between the ref and alt sequences Note that the chain is
-                  // re-initialised for each chromosome/seq_region
-
-  filter_t *filter;
-  char *filter_str;
-  int filter_logic; // include or exclude sites which match the filters? One of
-                    // FLT_INCLUDE/FLT_EXCLUDE
-
-  bcf_srs_t *files;
-  bcf_hdr_t *hdr;
-  FILE *fp_out;
-  FILE *fp_chain;
-  char **argv;
-  int argc, output_iupac, iupac_GTs, haplotype, allele, isample, napplied;
-  uint8_t *iupac_bitmask, *iupac_als;
-  int miupac_bitmask, miupac_als;
-  char *fname, *ref_fname, *sample, *sample_fname, *output_fname, *mask_fname,
-      *chain_fname, missing_allele, absent_allele;
-  char mark_del, mark_ins, mark_snv;
-  smpl_ilist_t *smpl;
-} args_t;
-
-extern "C" {
-void init_region(args_t *args, char *line);
-void apply_variant(args_t *args, bcf1_t *rec);
-bcf1_t **next_vcf_line(args_t *args);
-}
-
-void get_consensus(char *region, char *seq, args_t *args) {
-  init_region(args, region);
-
-  args->fa_length = strlen(seq);
-  args->fa_src_pos = strlen(seq);
-
-  // determine if uppercase or lowercase is used in this fasta file
-  args->fa_case = toupper(seq[0]) == seq[0] ? 1 : 0;
-
-  kputs(seq, &args->fa_buf);
-
-  bcf1_t **rec_ptr = NULL;
-  while (args->rid >= 0 && (rec_ptr = next_vcf_line(args))) {
-    bcf1_t *rec = *rec_ptr;
-    if (args->fa_end_pos && rec->pos > args->fa_end_pos)
-      break;
-
-    // clang-format off
-    /**
-       ==57670== Conditional jump or move depends on uninitialised value(s)
-       ==57670==    at 0x484ED28: strlen (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
-       ==57670==    by 0x4F23DB3: std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(char const*, std::allocator<char> co$
-       ==57670==    by 0x159297: main (main.cpp:232)
-       ==57670==  Uninitialised value was created by a heap allocation
-       ==57670==    at 0x484DCD3: realloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
-       ==57670==    by 0x154FC2: ks_resize (kstring.h:160)
-       ==57670==    by 0x154FC2: ks_resize (kstring.h:155)
-       ==57670==    by 0x154FC2: apply_variant (consensus.c:1002)
-       ==57670==    by 0x158DA2: get_consensus(char*, char*, args_t*) (main.cpp:164)
-       ==57670==    by 0x15920A: main (main.cpp:227)
-    **/
-    // clang-format on
-    apply_variant(args, rec);
-  }
-}
-
-static void init_data(args_t *args) {
-  args->files = bcf_sr_init();
-  args->files->require_index = 1;
-  if (!bcf_sr_add_reader(args->files, args->fname))
-    exit(1); // error("Failed to read from %s: %s\n", !strcmp("-", args->fname)
-             // ? "standard input" : args->fname,
-             // bcf_sr_strerror(args->files->errnum));
-  args->hdr = args->files->readers[0].header;
-  args->smpl = smpl_ilist_init(args->hdr, NULL, 0, SMPL_NONE | SMPL_VERBOSE);
-  args->isample = args->smpl->idx[0];
-  rbuf_init(&args->vcf_rbuf, 100);
-  args->vcf_buf = (bcf1_t **)calloc(args->vcf_rbuf.m, sizeof(bcf1_t *));
-  args->rid = -1;
-}
-
-static void destroy_data(args_t *args) {
-  if (args->smpl)
-    smpl_ilist_destroy(args->smpl);
-  bcf_sr_destroy(args->files);
-  int i;
-  for (i = 0; i < args->vcf_rbuf.m; i++)
-    if (args->vcf_buf[i])
-      bcf_destroy1(args->vcf_buf[i]);
-  free(args->vcf_buf);
-  free(args->fa_buf.s);
-  free(args->chr);
-}
 
 bool is_subpath(const vector<int> &A, const vector<int> &B) {
   // FIXME: is this the best way to do this?
@@ -254,33 +102,15 @@ int main(int argc, char *argv[]) {
   fai_destroy(fai);
 
   // Extract subhaplotypes
-  args_t *args = (args_t *)calloc(1, sizeof(args_t));
-  args->haplotype = 1;
-  args->fname = tvcf_path;
-  init_data(args);
-  get_consensus(region, region_seq, args);
-  // cerr << "Applied " << args->napplied << " variants" << endl;
-  // char *hap1 = (char *)malloc(args->fa_buf.l + 1);
-  // strcpy(hap1, args->fa_buf.s);
-  // hap1[args->fa_buf.l] = '\0';
-  string hap1(args->fa_buf.s, args->fa_buf.l);
-  transform(hap1.begin(), hap1.end(), hap1.begin(), ::toupper);
-  destroy_data(args);
-  free(args);
-
-  args = (args_t *)calloc(1, sizeof(args_t));
-  args->haplotype = 2;
-  args->fname = tvcf_path;
-  init_data(args);
-  get_consensus(region, region_seq, args);
-  // cerr << "Applied " << args->napplied << " variants" << endl;
-  // char *hap2 = (char *)malloc(args->fa_buf.l + 1);
-  // strcpy(hap2, args->fa_buf.s);
-  // hap2[args->fa_buf.l] = '\0';
-  string hap2(args->fa_buf.s, args->fa_buf.l);
-  transform(hap2.begin(), hap2.end(), hap2.begin(), ::toupper);
-  destroy_data(args);
-  free(args);
+  string hap1, hap2;
+  cerr << tvcf_path << endl;
+  Consenser c1(tvcf_path, 1);
+  hap1 = c1.build(region, region_seq);
+  c1.destroy_data();
+  cerr << tvcf_path << endl;
+  Consenser c2(tvcf_path, 2);
+  hap2 = c2.build(region, region_seq);
+  c2.destroy_data();
 
   // Build the graph
   // vg construct -N -a -r {input.fa} -v {input.cvcf} -R
@@ -364,7 +194,6 @@ int main(int argc, char *argv[]) {
      ==57670==    by 0x15984C: main (main.cpp:287)
    **/
   // clang-format on
-
   alignToDAGLocal(haps, g.diCharGraph, parameters, bestScoreVector);
 
   vector<Alignment> alignments;
@@ -570,6 +399,6 @@ int main(int argc, char *argv[]) {
 
   free(region);
   free(region_seq);
-
+  free(tvcf_path);
   return 0;
 }
