@@ -15,3 +15,6 @@
 [submodule "spdlog"]
 	path = spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "interval-tree"]
+	path = interval-tree
+	url = https://github.com/5cript/interval-tree.git

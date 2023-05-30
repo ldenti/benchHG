@@ -18,6 +18,7 @@
 #include "consenser.hpp"
 #include "cscorer.hpp"
 #include "graph.hpp"
+#include "locator.hpp"
 #include "tscorer.hpp"
 
 using namespace std;
@@ -25,27 +26,46 @@ using namespace std;
 int main(int argc, char *argv[]) {
   parse_arguments(argc, argv);
 
+  faidx_t *fai =
+      fai_load3_format(opt::fa_path.c_str(), NULL, NULL, FAI_CREATE, FAI_FASTA);
+
   vector<map<string, map<string, float>>> t_results(opt::threads);
   vector<map<string, map<string, float>>> c_results(opt::threads);
 
-  // spdlog::info("Initializing..");
+  string filtered_tvcf_path;
+  string filtered_cvcf_path;
 
   vector<string> regions;
-  string line;
-  ifstream region_f(opt::region);
-  if (region_f.is_open()) {
-    while (getline(region_f, line)) {
-      regions.push_back(line);
-      string seq_name;
-      int64_t start_pos = -1, stop_pos = -1;
-      vg::parse_region(line, seq_name, start_pos, stop_pos);
-      for (int i = 0; i < opt::threads; ++i) {
-        t_results[i][seq_name] = map<string, float>();
-        c_results[i][seq_name] = map<string, float>();
+  if (opt::region.compare("") == 0) {
+    Locator l(opt::k, opt::w);
+    l.add_conf(opt::conf);
+    l.add_trf(opt::trf);
+    filtered_tvcf_path = opt::tvcf_path + ".tmp.vcf.gz";
+    l.parse_truth(fai, opt::tvcf_path, filtered_tvcf_path);
+    filtered_cvcf_path = opt::cvcf_path + ".tmp.vcf.gz";
+    l.parse_call(fai, opt::cvcf_path, filtered_cvcf_path);
+    l.intersect();
+    regions = l.get_regions();
+  } else {
+    string line;
+    ifstream region_f(opt::region);
+    if (region_f.is_open()) {
+      while (getline(region_f, line)) {
+        regions.push_back(line);
+        string seq_name;
+        int64_t start_pos = -1, stop_pos = -1;
+        vg::parse_region(line, seq_name, start_pos, stop_pos);
+        for (int i = 0; i < opt::threads; ++i) {
+          t_results[i][seq_name] = map<string, float>();
+          c_results[i][seq_name] = map<string, float>();
+        }
       }
+      region_f.close();
     }
-    region_f.close();
+    filtered_tvcf_path = opt::tvcf_path;
+    filtered_cvcf_path = opt::cvcf_path;
   }
+  // spdlog::info("Initializing..");
 
   // TODO: split more intelligently?
   omp_set_dynamic(0);
@@ -59,19 +79,19 @@ int main(int argc, char *argv[]) {
     string seq_name;
     int64_t start_pos = -1, stop_pos = -1;
     vg::parse_region(region, seq_name, start_pos, stop_pos);
-    cerr << omp_get_thread_num() << " " << regions[i] << " ("
-         << stop_pos - start_pos + 1 << ")" << endl;
 
-    char *tvcf_path = (char *)malloc(opt::tvcf_path.size() + 1);
-    strcpy(tvcf_path, opt::tvcf_path.c_str());
-    tvcf_path[opt::tvcf_path.size()] = '\0';
+    if (stop_pos - start_pos + 1 > 50000)
+      continue;
+    // cerr << omp_get_thread_num() << " " << regions[i] << " ("
+    //      << stop_pos - start_pos + 1 << ")" << endl;
+
+    char *tvcf_path = (char *)malloc(filtered_tvcf_path.size() + 1);
+    strcpy(tvcf_path, filtered_tvcf_path.c_str());
+    tvcf_path[filtered_tvcf_path.size()] = '\0';
 
     // Extract region from .fai
-    faidx_t *fai = fai_load3_format(opt::fa_path.c_str(), NULL, NULL,
-                                    FAI_CREATE, FAI_FASTA);
     hts_pos_t seq_len;
     char *region_seq = fai_fetch64(fai, region, &seq_len);
-    fai_destroy(fai);
 
     // spdlog::info("Building consensus..");
     string hap1, hap2;
@@ -83,9 +103,12 @@ int main(int argc, char *argv[]) {
     c2.destroy_data();
 
     // spdlog::info("Building graph..");
-    Graph graph(opt::fa_path, opt::cvcf_path, string(region));
+    Graph graph(opt::fa_path, filtered_cvcf_path, string(region));
     graph.build();
     graph.analyze();
+
+    // cerr << region << endl;
+    // graph.to_gfa();
 
     // spdlog::info("Aligning to graph..");
     vector<string> haps;
@@ -94,11 +117,21 @@ int main(int argc, char *argv[]) {
     Aligner al(graph.hg, haps, 2);
     al.align();
 
+    // cerr << region_seq << endl;
+    // cerr << hap1 << endl;
+    // cerr << hap2 << endl;
+
     // Iterating over truth
-    TScorer ts(opt::tvcf_path, seq_name, start_pos, stop_pos);
+    TScorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos);
     ts.compute(al.alignments);
 
-    CScorer cs(opt::cvcf_path, seq_name, start_pos, stop_pos);
+    CScorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos);
+    // for (const auto &a : al.alignments) {
+    //   cerr << a.id << " " << a.cigar << " ";
+    //   for (const auto &i : a.path)
+    //     cerr << " " << i;
+    //   cerr << endl;
+    // }
     cs.compute(al.alignments, graph);
 
     for (const pair<string, float> res : ts.results)
@@ -132,7 +165,7 @@ int main(int argc, char *argv[]) {
   }
 
   // 2. Iterate over truth and assign scores
-  htsFile *vcf = bcf_open(opt::tvcf_path.c_str(), "r");
+  htsFile *vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
   bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
   bcf1_t *vcf_record = bcf_init();
   string seq_name, idx;
@@ -144,13 +177,13 @@ int main(int argc, char *argv[]) {
     score = -1;
     if (truth_results[seq_name].find(idx) != truth_results[seq_name].end())
       score = truth_results[seq_name][idx];
-    cout << "T " << idx << " " << score << endl;
+    // cout << "T " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
 
   // 3. Iterate over call and assign scores
-  vcf = bcf_open(opt::cvcf_path.c_str(), "r");
+  vcf = bcf_open(filtered_cvcf_path.c_str(), "r");
   vcf_header = bcf_hdr_read(vcf);
   vcf_record = bcf_init();
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
@@ -160,11 +193,13 @@ int main(int argc, char *argv[]) {
     score = -1;
     if (call_results[seq_name].find(idx) != call_results[seq_name].end())
       score = call_results[seq_name][idx];
-    cout << "C " << idx << " " << score << endl;
+    // cout << "C " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
   bcf_destroy(vcf_record);
+
+  fai_destroy(fai);
 
   return 0;
 }
