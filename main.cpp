@@ -117,12 +117,14 @@ int main(int argc, char *argv[]) {
     free(tvcf_path);
   }
 
-  // TODO: here we have to linarize these. then iterate over VCF and print (-1
-  // if in VCF and not in results)
+  // OUTPUT
+  // 1. Linearize
+  map<string, map<string, float>> truth_results;
+  map<string, map<string, float>> call_results;
   for (int i = 0; i < opt::threads; ++i) {
     for (auto it1 = t_results[i].begin(); it1 != t_results[i].end(); ++it1) {
       for (auto it2 = it1->second.begin(); it2 != it1->second.end(); ++it2) {
-        cout << "T " << it2->first << " " << it2->second << endl;
+        truth_results[it1->first][it2->first] = it2->second;
       }
     }
   }
@@ -130,10 +132,45 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < opt::threads; ++i) {
     for (auto it1 = c_results[i].begin(); it1 != c_results[i].end(); ++it1) {
       for (auto it2 = it1->second.begin(); it2 != it1->second.end(); ++it2) {
-        cout << "C " << it2->first << " " << it2->second << endl;
+        call_results[it1->first][it2->first] = it2->second;
       }
     }
   }
+
+  // 2. Iterate over truth and assign scores
+  htsFile *vcf = bcf_open(opt::tvcf_path.c_str(), "r");
+  bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
+  bcf1_t *vcf_record = bcf_init();
+  string seq_name, idx;
+  float score;
+  while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
+    bcf_unpack(vcf_record, BCF_UN_STR);
+    seq_name = bcf_hdr_id2name(vcf_header, vcf_record->rid);
+    idx = vcf_record->d.id;
+    score = -1;
+    if (truth_results[seq_name].find(idx) != truth_results[seq_name].end())
+      score = truth_results[seq_name][idx];
+    cout << "T " << idx << " " << score << endl;
+  }
+  bcf_hdr_destroy(vcf_header);
+  bcf_close(vcf);
+
+  // 3. Iterate over call and assign scores
+  vcf = bcf_open(opt::cvcf_path.c_str(), "r");
+  vcf_header = bcf_hdr_read(vcf);
+  vcf_record = bcf_init();
+  while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
+    bcf_unpack(vcf_record, BCF_UN_STR);
+    seq_name = bcf_hdr_id2name(vcf_header, vcf_record->rid);
+    idx = vcf_record->d.id;
+    score = -1;
+    if (call_results[seq_name].find(idx) != call_results[seq_name].end())
+      score = call_results[seq_name][idx];
+    cout << "C " << idx << " " << score << endl;
+  }
+  bcf_hdr_destroy(vcf_header);
+  bcf_close(vcf);
+  bcf_destroy(vcf_record);
 
   return 0;
 }
