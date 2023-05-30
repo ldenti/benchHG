@@ -9,15 +9,9 @@
 #include <zlib.h>
 
 #include <htslib/faidx.h>
-#include <htslib/synced_bcf_reader.h>
 #include <htslib/vcf.h>
-
-#include <bdsg/hash_graph.hpp>
-#include <constructor.hpp>
-// #include "gfa.hpp"
 #include <region.hpp> // vg
-
-#include <spdlog/spdlog.h>
+// #include <spdlog/spdlog.h>
 
 #include "aligner.hpp"
 #include "argument_parser.hpp"
