@@ -11,7 +11,8 @@
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
 #include <region.hpp> // vg
-// #include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 #include "aligner.hpp"
 #include "argument_parser.hpp"
@@ -24,8 +25,10 @@
 using namespace std;
 
 int main(int argc, char *argv[]) {
+  spdlog::set_default_logger(spdlog::stderr_color_st("stderr"));
   parse_arguments(argc, argv);
 
+  spdlog::info("Initializing..");
   faidx_t *fai =
       fai_load3_format(opt::fa_path.c_str(), NULL, NULL, FAI_CREATE, FAI_FASTA);
 
@@ -35,6 +38,7 @@ int main(int argc, char *argv[]) {
   string filtered_tvcf_path;
   string filtered_cvcf_path;
 
+  spdlog::info("Locating loci..");
   vector<string> regions;
   if (opt::region.compare("") == 0) {
     Locator l(opt::k, opt::w);
@@ -65,13 +69,18 @@ int main(int argc, char *argv[]) {
     filtered_tvcf_path = opt::tvcf_path;
     filtered_cvcf_path = opt::cvcf_path;
   }
-  // spdlog::info("Initializing..");
+  fai_destroy(fai);
 
   // TODO: split more intelligently?
+  spdlog::info("Starting multithreading analysis of loci..");
   omp_set_dynamic(0);
   omp_set_num_threads(opt::threads);
 #pragma omp parallel for
   for (uint i = 0; i < regions.size(); ++i) {
+    // CHECKME: accessing fai is not thread-safe
+    faidx_t *fai = fai_load3_format(opt::fa_path.c_str(), NULL, NULL,
+                                    FAI_CREATE, FAI_FASTA);
+
     char *region = (char *)malloc(regions[i].size() + 1);
     strcpy(region, regions[i].c_str());
     region[regions[i].size()] = '\0';
@@ -80,7 +89,7 @@ int main(int argc, char *argv[]) {
     int64_t start_pos = -1, stop_pos = -1;
     vg::parse_region(region, seq_name, start_pos, stop_pos);
 
-    if (stop_pos - start_pos + 1 > 50000)
+    if (stop_pos - start_pos + 1 > 20000)
       continue;
     // cerr << omp_get_thread_num() << " " << regions[i] << " ("
     //      << stop_pos - start_pos + 1 << ")" << endl;
@@ -92,7 +101,7 @@ int main(int argc, char *argv[]) {
     // Extract region from .fai
     hts_pos_t seq_len;
     char *region_seq = fai_fetch64(fai, region, &seq_len);
-
+    // cerr << region << " " << region_seq << endl;
     // spdlog::info("Building consensus..");
     string hap1, hap2;
     Consenser c1(tvcf_path, 1);
@@ -101,6 +110,8 @@ int main(int argc, char *argv[]) {
     Consenser c2(tvcf_path, 2);
     hap2 = c2.build(region, region_seq);
     c2.destroy_data();
+
+    free(region_seq);
 
     // spdlog::info("Building graph..");
     Graph graph(opt::fa_path, filtered_cvcf_path, string(region));
@@ -140,12 +151,12 @@ int main(int argc, char *argv[]) {
       c_results[omp_get_thread_num()][seq_name][res.first] = res.second;
 
     free(region);
-    free(region_seq);
     free(tvcf_path);
+    fai_destroy(fai);
   }
 
   // OUTPUT
-  // 1. Linearize
+  spdlog::info("Linearizing results..");
   map<string, map<string, float>> truth_results;
   map<string, map<string, float>> call_results;
   for (int i = 0; i < opt::threads; ++i) {
@@ -155,7 +166,6 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-
   for (int i = 0; i < opt::threads; ++i) {
     for (auto it1 = c_results[i].begin(); it1 != c_results[i].end(); ++it1) {
       for (auto it2 = it1->second.begin(); it2 != it1->second.end(); ++it2) {
@@ -164,7 +174,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // 2. Iterate over truth and assign scores
+  spdlog::info("Assigning score to truth..");
   htsFile *vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
   bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
   bcf1_t *vcf_record = bcf_init();
@@ -177,12 +187,12 @@ int main(int argc, char *argv[]) {
     score = -1;
     if (truth_results[seq_name].find(idx) != truth_results[seq_name].end())
       score = truth_results[seq_name][idx];
-    // cout << "T " << idx << " " << score << endl;
+    cout << "T " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
 
-  // 3. Iterate over call and assign scores
+  spdlog::info("Assigning score to call..");
   vcf = bcf_open(filtered_cvcf_path.c_str(), "r");
   vcf_header = bcf_hdr_read(vcf);
   vcf_record = bcf_init();
@@ -193,13 +203,11 @@ int main(int argc, char *argv[]) {
     score = -1;
     if (call_results[seq_name].find(idx) != call_results[seq_name].end())
       score = call_results[seq_name][idx];
-    // cout << "C " << idx << " " << score << endl;
+    cout << "C " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
   bcf_destroy(vcf_record);
-
-  fai_destroy(fai);
 
   return 0;
 }
