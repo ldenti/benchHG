@@ -5,9 +5,7 @@
 [submodule "bcftools"]
 	path = deps/bcftools
 	url = https://github.com/samtools/bcftools.git
-[submodule "libbdsg"]
-	path = libbdsg
-	url = https://github.com/vgteam/libbdsg.git
+	ignore = dirty
 [submodule "vg"]
 	path = deps/vg
 	url = https://github.com/vgteam/vg.git
@@ -21,3 +19,4 @@
 [submodule "PaSGAL"]
 	path = deps/PaSGAL
 	url = https://github.com/ldenti/PaSGAL
+	ignore = dirty
