@@ -1,18 +1,17 @@
 ##
-# Project Title
+# sveval
 #
 # @file
-# @version 0.1
+# @version 0.0.1
 
-CXXFLAGS=-Wall -Wno-sign-compare -O0 -std=c++14 -I. -I./spdlog/include -I./interval-tree/include -I/home/ld/code/PaSGAL/src/include -I./vg/src -I./vg/include -fopenmp -pthread
-LIBS=-L./vg/lib -lvg -lvgio -lhts -lbdsg -lhandlegraph -lvcflib -lprotobuf -lxg -lgbwtgraph -lgbwt -lgcsa2 -ltabixpp -lsdsl -ldivsufsort -ldivsufsort64 -ldwfl -ldw -ldwelf -lelf -lebl -lzstd -lz -lbz2 -llzma -latomic
+CXXFLAGS=-Wall -Wno-sign-compare -O3 -std=c++14 -I. -I./deps -I./deps/spdlog/include -I./deps/interval-tree/include -I./deps/PaSGAL/src/include -I./deps/vg/src -I./deps/vg/include -fopenmp -pthread
+LIBS=-L./deps/vg/lib -lvg -lvgio -lhts -ldeflate -lbdsg -lhandlegraph -lvcflib -lprotobuf -lxg -lgbwtgraph -lgbwt -lgcsa2 -ltabixpp -lsdsl -ldivsufsort -ldivsufsort64 -ldwfl -ldw -ldwelf -lelf -lebl -lzstd -lz -lbz2 -llzma -latomic
 
 .PHONY: all
 
 all: sveval
 
-# vg/obj/region.o
-sveval: bcftools/smpl_ilist.o bcftools/filter.o bcftools/smpl_ilist.o bcftools/consensus.o locator.o consenser.o graph.o aligner.o tscorer.o cscorer.o main.o
+sveval: ./deps/bcftools/smpl_ilist.o ./deps/bcftools/filter.o ./deps/bcftools/smpl_ilist.o ./deps/bcftools/consensus.o locator.o consenser.o graph.o aligner.o tscorer.o cscorer.o main.o
 	@echo "* Linking $@"
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS)
 
