@@ -87,6 +87,7 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
       stop = pos - l;
 
     // Variant is from pos to stop
+
     if (conf_trees.find(seq_name) != conf_trees.end() &&
         conf_trees[seq_name].overlap_find({pos, stop + 1}) ==
             end(conf_trees[seq_name]))
@@ -94,16 +95,20 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
 
     bcf_write1(ovcf, vcf_header, vcf_record);
 
-    if (istart == -1) {
+    if (last_seq_name != seq_name || istart == -1) {
+      if (istart != -1)
+        // Let's add last interval on previous chromosome
+        trees[last_seq_name].insert({istart, istop + 1});
       last_seq_name = seq_name;
       istart = pos;
       istop = stop;
-      // cerr << "(i) Setting istart to " << pos << " and istop to " << istop
-      //      << endl;
+      last_trf_s = -1;
+      last_trf_e = -1;
     }
     int trf_s = -1, trf_e = -1;
     if (trf_trees.find(seq_name) != trf_trees.end()) {
       auto overlap = trf_trees[seq_name].overlap_find({pos, stop});
+      // CHECKME: do we always have one overlap?
       if (overlap != end(trf_trees[seq_name])) {
         trf_s = overlap->low();
         trf_e = overlap->high();
@@ -118,8 +123,10 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
         last_trf_e = trf_e;
       }
     }
-    if (last_seq_name != seq_name || pos - (istop + 1) > w) {
-      // cerr << "I: " << istart - w << " " << istop + w + 1 << endl;
+    if (pos - (istop + 1) > w) {
+      // cerr << "I: " << seq_name << " " << istart << " " << istop + 1 << endl;
+      // if (seq_name.compare("chr10") == 0)
+      //     cerr << seq_name << ":" << istart << "-" << istop << endl;
       trees[seq_name].insert({istart, istop + 1});
       last_seq_name = seq_name;
       istart = pos;
@@ -129,17 +136,27 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
     istop = max(istop, stop);
     // cerr << "(iter) Setting istop to " << istop << endl;
   }
-  // cerr << "I: " << istart - w << " " << istop + w + 1 << endl;
-  trees[seq_name].insert({istart, istop + 1});
+  if (istart != -1) {
+    // cerr << "I: " << seq_name << " " << istart << " " << istop + 1 << endl;
+    trees[last_seq_name].insert({istart, istop + 1});
+  }
 
+  cerr << trees.size() << " trees" << endl;
   for (auto it = trees.begin(); it != trees.end(); ++it) {
     it->second.deoverlap();
 
     interval_tree_t<int> copy = it->second;
+    // for (const auto &i : it->second) {
+    //   copy.insert({i.low(), i.high()});
+    // }
+
     for (const auto &i : copy) {
+      // cerr << "Parsing " << it->first << " " << i.low() << " " << i.high() << endl;
+      // cerr << it->first << " " << copy.size() << " vs " << it->second.size() << endl;
       auto overlap = it->second.overlap_find(i);
       assert(overlap != end(it->second));
       int s = overlap->low(), e = overlap->high();
+      assert(s == i.low() && e == i.high());
       it->second.erase(overlap);
       string region =
           it->first + ":" + to_string(s - w + 1) + "-" + to_string(e + w);
@@ -147,7 +164,9 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
       string region_seq = fai_fetch64(fai, region.c_str(), &seq_len);
       transform(region_seq.begin(), region_seq.end(), region_seq.begin(),
                 ::toupper);
+      assert(region_seq.size() > 0);
       pair<int, int> uniques = get_unique_kmers(region_seq);
+      // cerr << "Inserting " << s - w + 1 + uniques.first << " " << s - w + 1 + uniques.second << endl;
       it->second.insert(
           {s - w + 1 + uniques.first, s - w + 1 + uniques.second});
     }
