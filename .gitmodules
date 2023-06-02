@@ -1,20 +1,23 @@
 [submodule "htslib"]
-	path = htslib
+	path = deps/htslib
 	url = https://github.com/samtools/htslib.git
 	ignore = dirty
 [submodule "bcftools"]
-	path = bcftools
+	path = deps/bcftools
 	url = https://github.com/samtools/bcftools.git
 [submodule "libbdsg"]
 	path = libbdsg
 	url = https://github.com/vgteam/libbdsg.git
 [submodule "vg"]
-	path = vg
+	path = deps/vg
 	url = https://github.com/vgteam/vg.git
 	ignore = dirty
 [submodule "spdlog"]
-	path = spdlog
+	path = deps/spdlog
 	url = https://github.com/gabime/spdlog.git
 [submodule "interval-tree"]
-	path = interval-tree
+	path = deps/interval-tree
 	url = https://github.com/5cript/interval-tree.git
+[submodule "PaSGAL"]
+	path = deps/PaSGAL
+	url = https://github.com/ldenti/PaSGAL
