@@ -25,7 +25,10 @@ make -j8
 
 ### Usage
 ``` sh
-./sveval [reference.fa] [truth.vcf.gz] [predictions.vcf.gz] [--conf <regions.bed>] [--trf <trf.bed>] [-@ <threads>] > [output]
+# preprocess your VCF
+bcftools norm -m- --threads 8 [truth.vcf.gz] | python3 scripts/clean_vcf.py | bcftools norm -m+ --threads 8 -Oz > [truth.sv.vcf.gz]
+tabix -p vcf [truth.sv.vcf.gz]
+./sveval [reference.fa] [truth.sv.vcf.gz] [predictions.sv.vcf.gz] [--conf <regions.bed>] [--trf <trf.bed>] [-@ <threads>] > [output]
 ```
 
 ## TODO
