@@ -1,0 +1,26 @@
+diff --git a/src/constructor.cpp b/src/constructor.cpp
+index f5f4653b9..2b730b5f3 100644
+--- a/src/constructor.cpp
++++ b/src/constructor.cpp
+@@ -218,8 +218,8 @@ namespace vg {
+                     if (!lowercase_warned_alt) {
+                         #pragma omp critical (cerr)
+                         {
+-                            cerr << "warning:[vg::Constructor] Lowercase characters found in "
+-                                 << "variant; coercing to uppercase:\n" << *const_cast<vcflib::Variant*>(variant) << endl;
++                            //cerr << "warning:[vg::Constructor] Lowercase characters found in "
++                            //     << "variant; coercing to uppercase:\n" << *const_cast<vcflib::Variant*>(variant) << endl;
+                             lowercase_warned_alt = true;
+                         }
+                     }
+@@ -231,8 +231,8 @@ namespace vg {
+                         // Note that the pragma also protects this mutable map that we update
+                         if (!lowercase_warned_sequences.count(name_to_warn)) {
+                             // We haven't warned about this sequence yet
+-                            cerr << "warning:[vg::Constructor] Lowercase characters found in "
+-                                << name_to_warn << "; coercing to uppercase." << endl;
++                            // cerr << "warning:[vg::Constructor] Lowercase characters found in "
++                            //     << name_to_warn << "; coercing to uppercase." << endl;
+                             lowercase_warned_sequences.insert(name_to_warn);
+                         }    
+                     }

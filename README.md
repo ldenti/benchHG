@@ -5,6 +5,10 @@
 git clone --recursive https://github.com/ldenti/sveval.git
 
 cd sveval/deps/vg
+git apply ../../patches/vg.diff
+cd deps/tabixpp
+git apply ../../../../patches/tabixpp.diff
+cd ../..
 . ./source_me.sh && make -j8
 
 cd ../htslib
