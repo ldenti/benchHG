@@ -17,6 +17,7 @@ public:
   bcf_srs_t *vcf;
   bcf_hdr_t *hdr;
   bcf1_t *rec;
+  string seq_name;
   int stop;
   map<string, float> results;
   TScorer(const string &, const string &, const int, const int);

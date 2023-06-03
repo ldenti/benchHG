@@ -1,6 +1,7 @@
 #ifndef CSCORER_H_
 #define CSCORER_H_
 
+#include <string>
 #include <vector>
 
 #include <htslib/synced_bcf_reader.h>
@@ -16,6 +17,7 @@ public:
   bcf_srs_t *vcf;
   bcf_hdr_t *hdr;
   bcf1_t *rec;
+  string seq_name;
   int stop;
   map<string, float> results;
   CScorer(const string &, const string &, const int, const int);

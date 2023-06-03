@@ -1,12 +1,13 @@
 #include "tscorer.hpp"
 
-TScorer::TScorer(const string &vcf_path, const string &seq_name,
+TScorer::TScorer(const string &vcf_path, const string &_seq_name,
                  const int start_pos, const int stop_pos) {
   vcf = bcf_sr_init();
   vcf->require_index = 1;
   if (!bcf_sr_add_reader(vcf, vcf_path.c_str()))
     cerr << "Failed to read from " << vcf_path << endl;
   hdr = vcf->readers[0].header;
+  seq_name = _seq_name;
   bcf_sr_seek(vcf, seq_name.c_str(), start_pos);
   rec = bcf_init();
   stop = stop_pos;
@@ -16,7 +17,7 @@ void TScorer::compute(const vector<Alignment> &alignments) {
   float score = 0.0;
   while (bcf_sr_next_line(vcf)) {
     rec = vcf->readers[0].buffer[0];
-    if (rec->pos > stop)
+    if (seq_name.compare(bcf_hdr_id2name(hdr, rec->rid)) != 0 || rec->pos > stop)
       break;
     bcf_unpack(rec, BCF_UN_ALL);
     char *idx(rec->d.id);

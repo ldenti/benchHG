@@ -17,12 +17,10 @@ void CScorer::compute(const vector<Alignment> &alignments, const Graph &graph) {
   float score = 0.0;
   while (bcf_sr_next_line(vcf)) {
     rec = vcf->readers[0].buffer[0];
-    if (rec->pos > stop)
+    if (seq_name.compare(bcf_hdr_id2name(hdr, rec->rid)) != 0 || rec->pos > stop)
       break;
     bcf_unpack(rec, BCF_UN_ALL);
     char *idx(rec->d.id);
-    string seq_name = bcf_hdr_id2name(hdr, rec->rid);
-    // int pos = rec->pos;
     string refall = rec->d.allele[0];
     transform(refall.begin(), refall.end(), refall.begin(), ::toupper);
     vector<pair<vector<int>, bool>> alts;
