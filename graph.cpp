@@ -77,5 +77,5 @@ void Graph::to_gfa() const {
   set<string> rgfa_paths;
   bool rgfa_pline = false;
   bool wline = true;
-  vg::graph_to_gfa(graph_to_write, std::cout, rgfa_paths, rgfa_pline, wline);
+  vg::graph_to_gfa(graph_to_write, std::cerr, rgfa_paths, rgfa_pline, wline);
 }

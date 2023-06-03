@@ -141,7 +141,6 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
     trees[last_seq_name].insert({istart, istop + 1});
   }
 
-  cerr << trees.size() << " trees" << endl;
   for (auto it = trees.begin(); it != trees.end(); ++it) {
     it->second.deoverlap();
 
