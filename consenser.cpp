@@ -24,7 +24,7 @@ string Consenser::build(char *region, char *seq) {
   bcf1_t **rec_ptr = NULL;
   while (args->rid >= 0 && (rec_ptr = next_vcf_line(args))) {
     bcf1_t *rec = *rec_ptr;
-    if (args->fa_end_pos && rec->pos > args->fa_end_pos)
+    if (strcmp(args->chr, bcf_hdr_id2name(args->hdr, rec->rid)) != 0 || (args->fa_end_pos && rec->pos > args->fa_end_pos))
       break;
 
     // clang-format off

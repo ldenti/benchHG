@@ -1,12 +1,13 @@
 #include "cscorer.hpp"
 
-CScorer::CScorer(const string &vcf_path, const string &seq_name,
+CScorer::CScorer(const string &vcf_path, const string &_seq_name,
                  const int start_pos, const int stop_pos) {
   vcf = bcf_sr_init();
   vcf->require_index = 1;
   if (!bcf_sr_add_reader(vcf, vcf_path.c_str()))
     cerr << "Failed to read from " << vcf_path << endl;
   hdr = vcf->readers[0].header;
+  seq_name = _seq_name;
   bcf_sr_seek(vcf, seq_name.c_str(), start_pos);
   rec = bcf_init();
   stop = stop_pos;
