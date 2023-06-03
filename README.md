@@ -32,11 +32,12 @@ make -j8
 # preprocess your VCF
 bcftools norm -m- --threads 8 [truth.vcf.gz] | python3 scripts/clean_vcf.py | bcftools norm -m+ --threads 8 -Oz > [truth.sv.vcf.gz]
 tabix -p vcf [truth.sv.vcf.gz]
+# run evaluation on preprocessed VCFs
 ./sveval [reference.fa] [truth.sv.vcf.gz] [predictions.sv.vcf.gz] [--conf <regions.bed>] [--trf <trf.bed>] [-@ <threads>] > [output]
 ```
 
 ## TODO
-- [ ] more chromosomes
+- [X] ~more chromosomes~
 - [ ] plots and analysis
 - [ ] cmake
 - [ ] static binary
