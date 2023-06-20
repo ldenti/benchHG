@@ -18,6 +18,7 @@ public:
   bcf_hdr_t *hdr;
   bcf1_t *rec;
   string seq_name;
+  int start;
   int stop;
   map<string, float> results;
   CScorer(const string &, const string &, const int, const int);

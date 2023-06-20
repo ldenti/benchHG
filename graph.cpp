@@ -34,6 +34,8 @@ void Graph::build() {
      ==57670==    by 0x1C27DB: vg::io::load_proto_to_graph(handlegraph::MutablePathMutableHandleGraph*, std::function<void (std::function<void (vg::Graph&)> const$
      ==57670==    by 0x17E072: vg::Constructor::construct_graph(std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::$
      ==57670==    by 0x15954E: main (main.cpp:261)
+
+     FIXED BUT NOT MERGED YET
   **/
   // clang-format on
   constructor.construct_graph(fasta_filenames, vcf_filenames,
@@ -49,6 +51,7 @@ void Graph::analyze() {
     if (path_names[i].front() != '_')
       continue;
     bdsg::path_handle_t ph = hg.get_path_handle(path_names[i]);
+    string path_name = hg.get_path_name(ph);
     vector<int> path;
     string path_seq;
     for (bdsg::handle_t handle : hg.scan_path(ph)) {
@@ -64,7 +67,7 @@ void Graph::analyze() {
                       out_edges[path.back()].push_back(hg.get_id(n));
                     });
     transform(path_seq.begin(), path_seq.end(), path_seq.begin(), ::toupper);
-    alt_paths.push_back(make_pair(path, path_seq));
+    alt_paths.push_back(make_tuple(path_name, path, path_seq));
   }
 }
 

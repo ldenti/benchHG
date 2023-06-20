@@ -17,7 +17,8 @@ void TScorer::compute(const vector<Alignment> &alignments) {
   float score = 0.0;
   while (bcf_sr_next_line(vcf)) {
     rec = vcf->readers[0].buffer[0];
-    if (seq_name.compare(bcf_hdr_id2name(hdr, rec->rid)) != 0 || rec->pos > stop)
+    if (seq_name.compare(bcf_hdr_id2name(hdr, rec->rid)) != 0 ||
+        rec->pos > stop)
       break;
     bcf_unpack(rec, BCF_UN_ALL);
     char *idx(rec->d.id);
@@ -29,6 +30,10 @@ void TScorer::compute(const vector<Alignment> &alignments) {
     uint8_t *ptr = fmt->p; // First sample
     int a1 = bcf_gt_allele(ptr[0]);
     int a2 = bcf_gt_allele(ptr[1]);
+#ifdef PDEBUG
+    cerr << a1 << " " << a2 << endl;
+    cerr << alignments[0].score << " " << alignments[1].score << endl;
+#endif
     // FIXME: assuming we have always two alignments
     score = 0.0;
     if (a1 == 1 && a2 == 0)

@@ -38,7 +38,7 @@ void Locator::add_conf(const string &bed_path) {
 }
 
 void Locator::add_trf(const string &bed_path) {
-  trf_trees = build_tree(bed_path, w / 2);
+  trf_trees = build_tree(bed_path, 0 /*w / 2*/);
 }
 
 void Locator::parse_truth(faidx_t *fai, const string &vcf_path,

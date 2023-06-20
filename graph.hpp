@@ -19,7 +19,7 @@ public:
   vector<string> fasta_filenames;
   vector<string> vcf_filenames;
   vector<string> insertion_filenames;
-  vector<pair<vector<int>, string>> alt_paths;
+  vector<tuple<string, vector<int>, string>> alt_paths;
   map<int, vector<int>>
       in_edges; // for each source of alt_paths, store in-nodes
   map<int, vector<int>>
