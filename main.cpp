@@ -89,10 +89,10 @@ int main(int argc, char *argv[]) {
     int64_t start_pos = -1, stop_pos = -1;
     vg::parse_region(region, seq_name, start_pos, stop_pos);
 
-    if (stop_pos - start_pos + 1 > 20000)
-      continue;
-    // cerr << omp_get_thread_num() << " " << regions[i] << " ("
-    //      << stop_pos - start_pos + 1 << ")" << endl;
+#ifdef PDEBUG
+    cerr << omp_get_thread_num() << " " << regions[i] << " ("
+         << stop_pos - start_pos + 1 << ")" << endl;
+#endif
 
     char *tvcf_path = (char *)malloc(filtered_tvcf_path.size() + 1);
     strcpy(tvcf_path, filtered_tvcf_path.c_str());
@@ -101,7 +101,6 @@ int main(int argc, char *argv[]) {
     // Extract region from .fai
     hts_pos_t seq_len;
     char *region_seq = fai_fetch64(fai, region, &seq_len);
-    // cerr << region << " " << region_seq << endl;
     // spdlog::info("Building consensus..");
     string hap1, hap2;
     Consenser c1(tvcf_path, 1);
@@ -111,16 +110,21 @@ int main(int argc, char *argv[]) {
     hap2 = c2.build(region, region_seq);
     c2.destroy_data();
 
+#ifdef PDEBUG
+    cerr << region_seq << endl;
+    cerr << hap1 << endl;
+    cerr << hap2 << endl;
+#endif
+
     free(region_seq);
 
     // spdlog::info("Building graph..");
     Graph graph(opt::fa_path, filtered_cvcf_path, string(region));
     graph.build();
     graph.analyze();
-
-    // cerr << region << endl;
+#ifdef PDEBUG
     // graph.to_gfa();
-
+#endif
     // spdlog::info("Aligning to graph..");
     vector<string> haps;
     haps.push_back(hap1);
@@ -128,21 +132,20 @@ int main(int argc, char *argv[]) {
     Aligner al(graph.hg, haps, 2);
     al.align();
 
-    // cerr << region_seq << endl;
-    // cerr << hap1 << endl;
-    // cerr << hap2 << endl;
+#ifdef PDEBUG
+    for (const auto &a : al.alignments) {
+      cerr << a.id << " " << a.cigar << " ";
+      for (const auto &i : a.path)
+        cerr << " " << i;
+      cerr << " " << a.score << endl;
+    }
+#endif
 
     // Iterating over truth
     TScorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos);
     ts.compute(al.alignments);
 
     CScorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos);
-    // for (const auto &a : al.alignments) {
-    //   cerr << a.id << " " << a.cigar << " ";
-    //   for (const auto &i : a.path)
-    //     cerr << " " << i;
-    //   cerr << endl;
-    // }
     cs.compute(al.alignments, graph);
 
     for (const pair<string, float> res : ts.results)
