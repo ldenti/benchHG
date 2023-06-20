@@ -44,35 +44,21 @@ int main(int argc, char *argv[]) {
     Locator l(opt::k, opt::w);
     l.add_conf(opt::conf);
     l.add_trf(opt::trf);
-    filtered_tvcf_path = opt::tvcf_path + ".tmp.vcf.gz";
+    filtered_tvcf_path = opt::out + ".truth.vcf.gz";
     l.parse_truth(fai, opt::tvcf_path, filtered_tvcf_path);
-    filtered_cvcf_path = opt::cvcf_path + ".tmp.vcf.gz";
+    filtered_cvcf_path = opt::out + ".predictions.vcf.gz";
     l.parse_call(fai, opt::cvcf_path, filtered_cvcf_path);
     l.intersect();
     regions = l.get_regions();
   } else {
-    string line;
-    ifstream region_f(opt::region);
-    if (region_f.is_open()) {
-      while (getline(region_f, line)) {
-        regions.push_back(line);
-        string seq_name;
-        int64_t start_pos = -1, stop_pos = -1;
-        vg::parse_region(line, seq_name, start_pos, stop_pos);
-        for (int i = 0; i < opt::threads; ++i) {
-          t_results[i][seq_name] = map<string, float>();
-          c_results[i][seq_name] = map<string, float>();
-        }
-      }
-      region_f.close();
-    }
+    regions.push_back(opt::region);
     filtered_tvcf_path = opt::tvcf_path;
     filtered_cvcf_path = opt::cvcf_path;
   }
   fai_destroy(fai);
 
   // TODO: split more intelligently?
-  spdlog::info("Starting multithreading analysis of loci..");
+  spdlog::info("Starting multithreading analysis of {} loci..", regions.size());
   omp_set_dynamic(0);
   omp_set_num_threads(opt::threads);
 #pragma omp parallel for

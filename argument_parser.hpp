@@ -14,6 +14,7 @@ static const char *USAGE_MESSAGE =
     "\n"
     "Usage: sveval <reference.fa> <truth.vcf.gz> <call.vcf.gz>\n"
     "\n"
+    "      -o, --out <prefix>                output prefix (default: OUT)\n"
     "      -k, --ksize <int>                 kmers size (default: 13)\n"
     "      -w, --window <int>                window size (default: 250)\n"
     "      -t, --trf <trf.bed>               tandem repeats .bed file\n"
@@ -28,6 +29,7 @@ static const char *USAGE_MESSAGE =
 namespace opt {
 static int k = 13;
 static int w = 250;
+static string out = "OUT";
 static string trf = "";
 static string conf = "";
 static string region = "";
@@ -37,9 +39,10 @@ static string tvcf_path;
 static string cvcf_path;
 } // namespace opt
 
-static const char *shortopts = "k:w:t:c:r:@:h";
+static const char *shortopts = "o:k:w:t:c:r:@:h";
 
 static const struct option longopts[] = {
+    {"out", required_argument, NULL, 'o'},
     {"ksize", required_argument, NULL, 'k'},
     {"window", required_argument, NULL, 'w'},
     {"trf", required_argument, NULL, 't'},
@@ -56,6 +59,9 @@ void parse_arguments(int argc, char **argv) {
        (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
     istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
+    case 'o':
+      arg >> opt::out;
+      break;
     case 'k':
       arg >> opt::k;
       break;
