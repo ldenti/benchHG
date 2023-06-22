@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
     graph.build();
     graph.analyze();
 #ifdef PDEBUG
-    // graph.to_gfa();
+    graph.to_gfa();
 #endif
     // spdlog::info("Aligning to graph..");
     vector<string> haps;
@@ -180,8 +180,10 @@ int main(int argc, char *argv[]) {
       region = truth_results[seq_name][idx].first,
       score = truth_results[seq_name][idx].second;
     }
-    // if (score > 0)
-    cout << "T " << region << " " << idx << " " << score << endl;
+#ifdef PDEBUG
+    if (score > 0)
+#endif
+      cout << "T " << region << " " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
@@ -200,8 +202,10 @@ int main(int argc, char *argv[]) {
       region = call_results[seq_name][idx].first;
       score = call_results[seq_name][idx].second;
     }
-    // if (score > 0)
-    cout << "C " << region << " " << idx << " " << score << endl;
+#ifdef PDEBUG
+    if (score > 0)
+#endif
+      cout << "C " << region << " " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
