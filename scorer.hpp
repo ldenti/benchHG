@@ -1,5 +1,5 @@
-#ifndef TSCORER_H_
-#define TSCORER_H_
+#ifndef SCORER_H_
+#define SCORER_H_
 
 #include <iostream>
 #include <string>
@@ -12,16 +12,20 @@
 
 using namespace std;
 
-class TScorer {
+class Scorer {
 public:
   bcf_srs_t *vcf;
   bcf_hdr_t *hdr;
   bcf1_t *rec;
   string seq_name;
+  int start;
   int stop;
+  float score1;
+  float score2;
   map<string, float> results;
-  TScorer(const string &, const string &, const int, const int);
-  void compute(const vector<Alignment> &);
+  Scorer(const string &, const string &, const int, const int, const float,
+         const float);
+  void compute();
 };
 
 #endif // TSCORER_H_

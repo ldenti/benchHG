@@ -10,6 +10,8 @@
 
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
+#include <parasail.h>
+#include <parasail/matrices/nuc44.h>
 #include <region.hpp> // vg
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -17,10 +19,9 @@
 #include "aligner.hpp"
 #include "argument_parser.hpp"
 #include "consenser.hpp"
-#include "cscorer.hpp"
 #include "graph.hpp"
 #include "locator.hpp"
-#include "tscorer.hpp"
+#include "scorer.hpp"
 
 using namespace std;
 
@@ -101,8 +102,6 @@ int main(int argc, char *argv[]) {
     cerr << hap2 << endl;
 #endif
 
-    free(region_seq);
-
     // spdlog::info("Building graph..");
     Graph graph(opt::fa_path, filtered_cvcf_path, string(region));
     graph.build();
@@ -110,6 +109,7 @@ int main(int argc, char *argv[]) {
 #ifdef PDEBUG
     graph.to_gfa();
 #endif
+
     // spdlog::info("Aligning to graph..");
     vector<string> haps;
     haps.push_back(hap1);
@@ -117,7 +117,29 @@ int main(int argc, char *argv[]) {
     Aligner al(graph.hg, haps, 2);
     al.align();
 
+    parasail_result_t *result = NULL;
+    result =
+        parasail_nw_trace_striped_16(hap1.c_str(), hap1.size(), region_seq,
+                                     strlen(region_seq), 1, 1, &parasail_nuc44);
+    parasail_cigar_t *cigar =
+        parasail_result_get_cigar(result, hap1.c_str(), hap1.size(), region_seq,
+                                  strlen(region_seq), NULL);
+    Alignment refal1 = {
+        -1, hap1.size(), 0, parasail_cigar_decode(cigar), vector<int>(), 0.0};
+    refal1.set_score();
+
+    result =
+        parasail_nw_trace_striped_16(hap2.c_str(), hap2.size(), region_seq,
+                                     strlen(region_seq), 1, 1, &parasail_nuc44);
+    cigar = parasail_result_get_cigar(result, hap2.c_str(), hap2.size(),
+                                      region_seq, strlen(region_seq), NULL);
+    Alignment refal2 = {
+        -1, hap2.size(), 0, parasail_cigar_decode(cigar), vector<int>(), 0.0};
+    refal2.set_score();
+
 #ifdef PDEBUG
+    cerr << hap1.size() << " " << refal1.cigar << " " << refal1.score << endl;
+    cerr << hap2.size() << " " << refal2.cigar << " " << refal2.score << endl;
     for (const auto &a : al.alignments) {
       cerr << a.id << " " << a.cigar << " ";
       for (const auto &i : a.path)
@@ -126,20 +148,25 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    // Iterating over truth
-    TScorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos);
-    ts.compute(al.alignments);
+    // FIXME: assuming we have always two alignments
+    float score1 = (refal1.score == 1 && al.alignments[0].score - refal1.score >= 0) || (refal1.score < 1 && al.alignments[0].score - refal1.score > 0) ? al.alignments[0].score : 0;
+    float score2 = (refal2.score == 1 && al.alignments[1].score - refal2.score >= 0) || (refal2.score < 1 && al.alignments[1].score - refal2.score > 0) ? al.alignments[1].score : 0;
+    Scorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos, score1, score2);
+    ts.compute();
 
-    CScorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos);
-    cs.compute(al.alignments, graph);
+    Scorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos, score1, score2);
+    cs.compute();
 
-    for (const pair<string, float> res : ts.results)
+    for (const pair<string, float> res : ts.results) {
       t_results[omp_get_thread_num()][seq_name][res.first] =
           make_pair(region, res.second);
-    for (const pair<string, float> res : cs.results)
+    }
+    for (const pair<string, float> res : cs.results) {
       c_results[omp_get_thread_num()][seq_name][res.first] =
           make_pair(region, res.second);
+    }
 
+    free(region_seq);
     free(region);
     free(tvcf_path);
     fai_destroy(fai);
@@ -168,8 +195,9 @@ int main(int argc, char *argv[]) {
   htsFile *vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
   bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
   bcf1_t *vcf_record = bcf_init();
-  string seq_name, idx, region;
+  string seq_name, idx, region, last_region = "";
   float score;
+  int region_size = 0;
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
     seq_name = bcf_hdr_id2name(vcf_header, vcf_record->rid);
@@ -180,10 +208,13 @@ int main(int argc, char *argv[]) {
       region = truth_results[seq_name][idx].first,
       score = truth_results[seq_name][idx].second;
     }
-#ifdef PDEBUG
-    if (score > 0)
-#endif
-      cout << "T " << region << " " << idx << " " << score << endl;
+    if (region.compare(last_region) != 0)
+      region_size = 0;
+    ++region_size;
+    if (region.compare(".") == 0)
+      region_size = -1;
+    cout << "T " << region_size << " " << region << " " << idx << " " << score
+         << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
@@ -192,6 +223,8 @@ int main(int argc, char *argv[]) {
   vcf = bcf_open(filtered_cvcf_path.c_str(), "r");
   vcf_header = bcf_hdr_read(vcf);
   vcf_record = bcf_init();
+  region_size = 0;
+  last_region = "";
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
     seq_name = bcf_hdr_id2name(vcf_header, vcf_record->rid);
@@ -202,10 +235,13 @@ int main(int argc, char *argv[]) {
       region = call_results[seq_name][idx].first;
       score = call_results[seq_name][idx].second;
     }
-#ifdef PDEBUG
-    if (score > 0)
-#endif
-      cout << "C " << region << " " << idx << " " << score << endl;
+    if (region.compare(last_region) != 0)
+      region_size = 0;
+    ++region_size;
+    if (region.compare(".") == 0)
+      region_size = -1;
+    cout << "C " << region_size << " " << region << " " << idx << " " << score
+         << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
