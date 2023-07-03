@@ -36,11 +36,14 @@ struct Alignment {
       string match_str = match.str();
       char op = match_str.back();
       match_str.pop_back();
-      int l = stoi(match_str);
-      OPs[op] += l;
+      int opl = stoi(match_str);
+      OPs[op] += opl;
     }
     il = OPs['X'] + OPs['='] + OPs['I'];
-    score = 1.0 - (OPs['I'] + OPs['D'] + OPs['X'] + abs(l - il)) / l; // CHECKME
+    // score = 1.0 - (OPs['='] + OPs['D'] + OPs['X'] + abs(l - il)) / l; //
+    // CHECKME
+    score =
+        OPs['='] / (OPs['='] + OPs['D'] + OPs['X'] + OPs['I'] + abs(l - il));
   }
 };
 
