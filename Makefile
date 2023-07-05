@@ -12,7 +12,7 @@ OPT=-O2
 
 all: sveval
 
-sveval: ./deps/bcftools/smpl_ilist.o ./deps/bcftools/filter.o ./deps/bcftools/smpl_ilist.o ./deps/bcftools/consensus.o locator.o consenser.o graph.o aligner.o tscorer.o cscorer.o scorer.o main.o
+sveval: ./deps/bcftools/smpl_ilist.o ./deps/bcftools/filter.o ./deps/bcftools/smpl_ilist.o ./deps/bcftools/consensus.o locator.o consenser.o graph.o aligner.o scorer.o main.o
 	@echo "* Linking $@"
 	$(CXX) $(OPT) $(CXXFLAGS) -o $@ $^ $(LIBS)
 
