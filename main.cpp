@@ -62,38 +62,50 @@ int main(int argc, char *argv[]) {
   spdlog::info("Starting multithreading analysis of {} loci..", regions.size());
   omp_set_dynamic(0);
   omp_set_num_threads(opt::threads);
+
+  vector<char *> REGION(opt::threads);
+  // vector<char *> REGION_SEQ(opt::threads);
+  vector<faidx_t *> FAI(opt::threads);
+  vector<parasail_result_t *> PSRES(opt::threads);
+  vector<parasail_cigar_t *> PSCIG(opt::threads);
+
+  for (uint i = 0; i < opt::threads; ++i) {
+    FAI[i] = fai_load3_format(opt::fa_path.c_str(), NULL, NULL, FAI_CREATE,
+                              FAI_FASTA);
+    REGION[i] = (char *)malloc(512);
+    PSRES[i] = NULL;
+    PSCIG[i] = NULL;
+  }
+  char *tvcf_path = (char *)malloc(filtered_tvcf_path.size() + 1);
+  strcpy(tvcf_path, filtered_tvcf_path.c_str());
+  tvcf_path[filtered_tvcf_path.size()] = '\0';
+
 #pragma omp parallel for
   for (uint i = 0; i < regions.size(); ++i) {
-    // CHECKME: accessing fai is not thread-safe
-    faidx_t *fai = fai_load3_format(opt::fa_path.c_str(), NULL, NULL,
-                                    FAI_CREATE, FAI_FASTA);
-    char *region = (char *)malloc(regions[i].size() + 1);
-    strcpy(region, regions[i].c_str());
-    region[regions[i].size()] = '\0';
+    strcpy(REGION[omp_get_thread_num()], regions[i].c_str());
+    REGION[omp_get_thread_num()][regions[i].size()] = '\0';
 
     string seq_name;
     int64_t start_pos = -1, stop_pos = -1;
-    vg::parse_region(region, seq_name, start_pos, stop_pos);
+    vg::parse_region(REGION[omp_get_thread_num()], seq_name, start_pos,
+                     stop_pos);
 
 #ifdef PDEBUG
     cerr << omp_get_thread_num() << " " << regions[i] << " ("
          << stop_pos - start_pos + 1 << ")" << endl;
 #endif
 
-    char *tvcf_path = (char *)malloc(filtered_tvcf_path.size() + 1);
-    strcpy(tvcf_path, filtered_tvcf_path.c_str());
-    tvcf_path[filtered_tvcf_path.size()] = '\0';
-
     // Extract region from .fai
     hts_pos_t seq_len;
-    char *region_seq = fai_fetch64(fai, region, &seq_len);
+    char *region_seq = fai_fetch64(FAI[omp_get_thread_num()],
+                                   REGION[omp_get_thread_num()], &seq_len);
     // spdlog::info("Building consensus..");
     string hap1, hap2;
     Consenser c1(tvcf_path, 1);
-    hap1 = c1.build(region, region_seq);
+    hap1 = c1.build(REGION[omp_get_thread_num()], region_seq);
     c1.destroy_data();
     Consenser c2(tvcf_path, 2);
-    hap2 = c2.build(region, region_seq);
+    hap2 = c2.build(REGION[omp_get_thread_num()], region_seq);
     c2.destroy_data();
 
 #ifdef PDEBUG
@@ -103,7 +115,8 @@ int main(int argc, char *argv[]) {
 #endif
 
     // spdlog::info("Building graph..");
-    Graph graph(opt::fa_path, filtered_cvcf_path, string(region));
+    Graph graph(opt::fa_path, filtered_cvcf_path,
+                string(REGION[omp_get_thread_num()]));
     graph.build();
     graph.analyze();
 #ifdef PDEBUG
@@ -117,24 +130,32 @@ int main(int argc, char *argv[]) {
     Aligner al(graph.hg, haps, 2);
     al.align();
 
-    parasail_result_t *result = NULL;
-    result =
+    PSRES[omp_get_thread_num()] =
         parasail_nw_trace_striped_16(hap1.c_str(), hap1.size(), region_seq,
                                      strlen(region_seq), 1, 1, &parasail_nuc44);
-    parasail_cigar_t *cigar =
-        parasail_result_get_cigar(result, hap1.c_str(), hap1.size(), region_seq,
-                                  strlen(region_seq), NULL);
-    Alignment refal1 = {
-        -1, hap1.size(), 0, parasail_cigar_decode(cigar), vector<int>(), 0.0};
+    PSCIG[omp_get_thread_num()] = parasail_result_get_cigar(
+        PSRES[omp_get_thread_num()], hap1.c_str(), hap1.size(), region_seq,
+        strlen(region_seq), NULL);
+    Alignment refal1 = {-1,
+                        hap1.size(),
+                        0,
+                        parasail_cigar_decode(PSCIG[omp_get_thread_num()]),
+                        vector<int>(),
+                        0.0};
     refal1.set_score();
 
-    result =
+    PSRES[omp_get_thread_num()] =
         parasail_nw_trace_striped_16(hap2.c_str(), hap2.size(), region_seq,
                                      strlen(region_seq), 1, 1, &parasail_nuc44);
-    cigar = parasail_result_get_cigar(result, hap2.c_str(), hap2.size(),
-                                      region_seq, strlen(region_seq), NULL);
-    Alignment refal2 = {
-        -1, hap2.size(), 0, parasail_cigar_decode(cigar), vector<int>(), 0.0};
+    PSCIG[omp_get_thread_num()] = parasail_result_get_cigar(
+        PSRES[omp_get_thread_num()], hap2.c_str(), hap2.size(), region_seq,
+        strlen(region_seq), NULL);
+    Alignment refal2 = {-1,
+                        hap2.size(),
+                        0,
+                        parasail_cigar_decode(PSCIG[omp_get_thread_num()]),
+                        vector<int>(),
+                        0.0};
     refal2.set_score();
 
 #ifdef PDEBUG
@@ -149,28 +170,43 @@ int main(int argc, char *argv[]) {
 #endif
 
     // FIXME: assuming we have always two alignments
-    float score1 = (refal1.score == 1 && al.alignments[0].score - refal1.score >= 0) || (refal1.score < 1 && al.alignments[0].score - refal1.score > 0) ? al.alignments[0].score : 0;
-    float score2 = (refal2.score == 1 && al.alignments[1].score - refal2.score >= 0) || (refal2.score < 1 && al.alignments[1].score - refal2.score > 0) ? al.alignments[1].score : 0;
-    Scorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos, score1, score2);
+    float score1 =
+        (refal1.score == 1 && al.alignments[0].score - refal1.score >= 0) ||
+                (refal1.score < 1 && al.alignments[0].score - refal1.score > 0)
+            ? al.alignments[0].score
+            : 0;
+    float score2 =
+        (refal2.score == 1 && al.alignments[1].score - refal2.score >= 0) ||
+                (refal2.score < 1 && al.alignments[1].score - refal2.score > 0)
+            ? al.alignments[1].score
+            : 0;
+    // cerr << score1 << " " << score2 << endl;
+    Scorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos, score1,
+              score2);
     ts.compute();
 
-    Scorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos, score1, score2);
+    Scorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos, score1,
+              score2);
     cs.compute();
 
     for (const pair<string, float> res : ts.results) {
       t_results[omp_get_thread_num()][seq_name][res.first] =
-          make_pair(region, res.second);
+          make_pair(REGION[omp_get_thread_num()], res.second);
     }
     for (const pair<string, float> res : cs.results) {
       c_results[omp_get_thread_num()][seq_name][res.first] =
-          make_pair(region, res.second);
+          make_pair(REGION[omp_get_thread_num()], res.second);
     }
 
     free(region_seq);
-    free(region);
-    free(tvcf_path);
-    fai_destroy(fai);
   }
+  for (uint i = 0; i < opt::threads; ++i) {
+    fai_destroy(FAI[i]);
+    free(REGION[i]);
+    parasail_result_free(PSRES[i]);
+    parasail_cigar_free(PSCIG[i]);
+  }
+  free(tvcf_path);
 
   // OUTPUT
   spdlog::info("Linearizing results..");
