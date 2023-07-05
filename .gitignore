@@ -3,3 +3,4 @@
 sveval
 *.txt
 .vscode
+.snakemake/
