@@ -25,6 +25,7 @@ void Scorer::compute() {
       break;
     bcf_unpack(rec, BCF_UN_ALL);
     char *idx(rec->d.id);
+    // cerr << "- " << score1 << " " << score2 << endl;
     results[idx] = (score1 + score2) / 2.0;
   }
   // TODO: move this somewhere else
