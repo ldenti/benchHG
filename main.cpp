@@ -10,8 +10,6 @@
 
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
-#include <parasail.h>
-#include <parasail/matrices/nuc44.h>
 #include <region.hpp> // vg
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -23,7 +21,36 @@
 #include "locator.hpp"
 #include "scorer.hpp"
 
+#include "ksw2.h"
+
 using namespace std;
+
+string seq_align(const char *tseq, const char *qseq, int sc_mch, int sc_mis, int gapo, int gape)
+{
+int i, a = sc_mch, b = sc_mis < 0? sc_mis : -sc_mis; // a>0 and b<0
+	int8_t mat[25] = { a,b,b,b,0, b,a,b,b,0, b,b,a,b,0, b,b,b,a,0, 0,0,0,0,0 };
+	int tl = strlen(tseq), ql = strlen(qseq);
+	uint8_t *ts, *qs, c[256];
+	ksw_extz_t ez;
+
+	memset(&ez, 0, sizeof(ksw_extz_t));
+	memset(c, 4, 256);
+	c['A'] = c['a'] = 0; c['C'] = c['c'] = 1;
+	c['G'] = c['g'] = 2; c['T'] = c['t'] = 3; // build the encoding table
+	ts = (uint8_t*)malloc(tl);
+	qs = (uint8_t*)malloc(ql);
+	for (i = 0; i < tl; ++i) ts[i] = c[(uint8_t)tseq[i]]; // encode to 0/1/2/3
+	for (i = 0; i < ql; ++i) qs[i] = c[(uint8_t)qseq[i]];
+	ksw_extz(0, ql, qs, tl, ts, 5, mat, gapo, gape, -1, -1, 0, &ez);
+  string cigar = "";
+	for (i = 0; i < ez.n_cigar; ++i) {
+    cigar += to_string(ez.cigar[i]>>4) + "MID"[ez.cigar[i]&0xf];
+		// printf("%d%c", ez.cigar[i]>>4, "MID"[ez.cigar[i]&0xf]);
+  }
+	// putchar('\n');
+	free(ez.cigar); free(ts); free(qs);
+  return cigar;
+}
 
 int main(int argc, char *argv[]) {
   spdlog::set_default_logger(spdlog::stderr_color_st("stderr"));
@@ -66,15 +93,11 @@ int main(int argc, char *argv[]) {
   vector<char *> REGION(opt::threads);
   // vector<char *> REGION_SEQ(opt::threads);
   vector<faidx_t *> FAI(opt::threads);
-  vector<parasail_result_t *> PSRES(opt::threads);
-  vector<parasail_cigar_t *> PSCIG(opt::threads);
 
   for (uint i = 0; i < opt::threads; ++i) {
     FAI[i] = fai_load3_format(opt::fa_path.c_str(), NULL, NULL, FAI_CREATE,
                               FAI_FASTA);
     REGION[i] = (char *)malloc(512);
-    PSRES[i] = NULL;
-    PSCIG[i] = NULL;
   }
   char *tvcf_path = (char *)malloc(filtered_tvcf_path.size() + 1);
   strcpy(tvcf_path, filtered_tvcf_path.c_str());
@@ -130,30 +153,20 @@ int main(int argc, char *argv[]) {
     Aligner al(graph.hg, haps, 2);
     al.align();
 
-    PSRES[omp_get_thread_num()] =
-        parasail_nw_trace_striped_16(hap1.c_str(), hap1.size(), region_seq,
-                                     strlen(region_seq), 1, 1, &parasail_nuc44);
-    PSCIG[omp_get_thread_num()] = parasail_result_get_cigar(
-        PSRES[omp_get_thread_num()], hap1.c_str(), hap1.size(), region_seq,
-        strlen(region_seq), NULL);
+
+    string cigar = seq_align(hap1.c_str(), region_seq, 1, -2, 2, 1);
     Alignment refal1 = {-1,
                         hap1.size(),
                         0,
-                        parasail_cigar_decode(PSCIG[omp_get_thread_num()]),
+                        cigar,
                         vector<int>(),
                         0.0};
     refal1.set_score();
-
-    PSRES[omp_get_thread_num()] =
-        parasail_nw_trace_striped_16(hap2.c_str(), hap2.size(), region_seq,
-                                     strlen(region_seq), 1, 1, &parasail_nuc44);
-    PSCIG[omp_get_thread_num()] = parasail_result_get_cigar(
-        PSRES[omp_get_thread_num()], hap2.c_str(), hap2.size(), region_seq,
-        strlen(region_seq), NULL);
+    cigar = seq_align(hap2.c_str(), region_seq, 1, -2, 2, 1);
     Alignment refal2 = {-1,
                         hap2.size(),
                         0,
-                        parasail_cigar_decode(PSCIG[omp_get_thread_num()]),
+                        cigar,
                         vector<int>(),
                         0.0};
     refal2.set_score();
@@ -203,8 +216,6 @@ int main(int argc, char *argv[]) {
   for (uint i = 0; i < opt::threads; ++i) {
     fai_destroy(FAI[i]);
     free(REGION[i]);
-    parasail_result_free(PSRES[i]);
-    parasail_cigar_free(PSCIG[i]);
   }
   free(tvcf_path);
 
