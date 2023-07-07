@@ -72,19 +72,21 @@ int main(int argc, char *argv[]) {
 
   string filtered_tvcf_path;
   string filtered_cvcf_path;
-
-  spdlog::info("Locating loci..");
   vector<string> regions;
   if (opt::region.compare("") == 0) {
+    spdlog::info("Creating trees..");
     Locator l(opt::k, opt::w);
     l.add_conf(opt::conf);
     l.add_trf(opt::trf);
+    spdlog::info("Locating regions of interest from truth..");
     filtered_tvcf_path = opt::out + ".truth.vcf.gz";
     l.parse_truth(fai, opt::tvcf_path, filtered_tvcf_path);
+    spdlog::info("Locating regions of interest from call..");
     filtered_cvcf_path = opt::out + ".predictions.vcf.gz";
     l.parse_call(fai, opt::cvcf_path, filtered_cvcf_path);
-    l.intersect();
-    regions = l.get_regions();
+    spdlog::info("Intersecting regions..");
+    l.intersect(opt::regions_only);
+    regions = l.get_regions(opt::regions_only);
   } else {
     regions.push_back(opt::region);
     filtered_tvcf_path = opt::tvcf_path;
@@ -92,10 +94,8 @@ int main(int argc, char *argv[]) {
   }
   fai_destroy(fai);
 
-  // TODO: split more intelligently?
-  spdlog::info("Starting multithreading analysis of {} loci..", regions.size());
-  omp_set_dynamic(0);
-  omp_set_num_threads(opt::threads);
+  if (opt::regions_only)
+    return 0;
 
   vector<char *> REGION(opt::threads);
   // vector<char *> REGION_SEQ(opt::threads);
