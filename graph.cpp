@@ -48,26 +48,31 @@ void Graph::analyze() {
     path_names.emplace_back(hg.get_path_name(p));
   });
   for (int i = 0; i < hg.get_path_count(); ++i) {
-    if (path_names[i].front() != '_')
-      continue;
-    bdsg::path_handle_t ph = hg.get_path_handle(path_names[i]);
-    string path_name = hg.get_path_name(ph);
-    vector<int> path;
-    string path_seq;
-    for (bdsg::handle_t handle : hg.scan_path(ph)) {
-      path.push_back(hg.get_id(handle));
-      path_seq += hg.get_sequence(handle);
+    if (path_names[i].front() != '_') {
+      bdsg::path_handle_t ph = hg.get_path_handle(path_names[i]);
+      vector<int> path;
+      for (bdsg::handle_t handle : hg.scan_path(ph))
+        ref_path.push_back(hg.get_id(handle));
+    } else {
+      // bdsg::path_handle_t ph = hg.get_path_handle(path_names[i]);
+      // string path_name = hg.get_path_name(ph);
+      // vector<int> path;
+      // string path_seq;
+      // for (bdsg::handle_t handle : hg.scan_path(ph)) {
+      //   path.push_back(hg.get_id(handle));
+      //   path_seq += hg.get_sequence(handle);
+      // }
+      // hg.follow_edges(hg.get_handle(path.front()), true,
+      //                 [&](const bdsg::handle_t &n) {
+      //                   in_edges[path.front()].push_back(hg.get_id(n));
+      //                 });
+      // hg.follow_edges(hg.get_handle(path.back()), false,
+      //                 [&](const bdsg::handle_t &n) {
+      //                   out_edges[path.back()].push_back(hg.get_id(n));
+      //                 });
+      // transform(path_seq.begin(), path_seq.end(), path_seq.begin(),
+      // ::toupper); alt_paths.push_back(make_tuple(path_name, path, path_seq));
     }
-    hg.follow_edges(hg.get_handle(path.front()), true,
-                    [&](const bdsg::handle_t &n) {
-                      in_edges[path.front()].push_back(hg.get_id(n));
-                    });
-    hg.follow_edges(hg.get_handle(path.back()), false,
-                    [&](const bdsg::handle_t &n) {
-                      out_edges[path.back()].push_back(hg.get_id(n));
-                    });
-    transform(path_seq.begin(), path_seq.end(), path_seq.begin(), ::toupper);
-    alt_paths.push_back(make_tuple(path_name, path, path_seq));
   }
 }
 

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -193,7 +194,10 @@ int main(int argc, char *argv[]) {
     graph.build();
     graph.analyze();
 #ifdef PDEBUG
-    graph.to_gfa();
+    // graph.to_gfa();
+    for (const int &n : graph.ref_path)
+      cerr << n << " ";
+    cerr << endl;
 #endif
 
     float gscore1 = -1, gscore2 = -1, rscore1 = -1, rscore2 = -1;
@@ -204,47 +208,56 @@ int main(int argc, char *argv[]) {
       haps.push_back(hap2);
     Aligner al(graph.hg, haps, 2);
     al.align();
-
+    vector<int> path1;
+    vector<int> path2;
     if (c1.has_alts && c2.has_alts) {
       gscore1 = al.alignments[0].score;
+      path1 = al.alignments[0].path;
       gscore2 = al.alignments[1].score;
+      path2 = al.alignments[1].path;
     } else if (c1.has_alts) {
       gscore1 = al.alignments[0].score;
+      path1 = al.alignments[0].path;
       gscore2 = gscore1;
+      path2 = path1;
     } else {
       gscore2 = al.alignments[0].score;
+      path2 = al.alignments[0].path;
       gscore1 = gscore2;
+      path1 = path2;
     }
 
-    Alignment refal1, refal2;
-    if (c1.has_alts) {
-      string cigar = seq_align(region_seq, hap1.c_str(), 1, -2, 2, 1);
-      refal1 = {-1, hap1.size(), 0, cigar, vector<int>(), 0.0};
-      refal1.set_score();
-      rscore1 = refal1.score;
-#ifdef PDEBUG
-      cerr << hap1.size() << " " << refal1.cigar << " " << rscore1 << endl;
-#endif
-    } else {
-#ifdef PDEBUG
-      cerr << "No ref alignment 1" << endl;
-#endif
-    }
-    if (c2.has_alts) {
-      string cigar = seq_align(region_seq, hap2.c_str(), 1, -2, 2, 1);
-      refal2 = {-1, hap2.size(), 0, cigar, vector<int>(), 0.0};
-      refal2.set_score();
-      rscore2 = refal2.score;
-#ifdef PDEBUG
-      cerr << hap2.size() << " " << refal2.cigar << " " << rscore2 << endl;
-#endif
-    } else {
-#ifdef PDEBUG
-      cerr << "No ref alignment 2" << endl;
-#endif
-    }
-    rscore1 = rscore1 == -1 ? rscore2 : rscore1;
-    rscore2 = rscore2 == -1 ? rscore1 : rscore2;
+    //     Alignment refal1, refal2;
+    //     if (c1.has_alts) {
+    //       string cigar = seq_align(region_seq, hap1.c_str(), 1, -2, 2, 1);
+    //       refal1 = {-1, hap1.size(), 0, cigar, vector<int>(), 0.0};
+    //       refal1.set_score();
+    //       rscore1 = refal1.score;
+    // #ifdef PDEBUG
+    //       cerr << hap1.size() << " " << refal1.cigar << " " << rscore1 <<
+    //       endl;
+    // #endif
+    //     } else {
+    // #ifdef PDEBUG
+    //       cerr << "No ref alignment 1" << endl;
+    // #endif
+    //     }
+    //     if (c2.has_alts) {
+    //       string cigar = seq_align(region_seq, hap2.c_str(), 1, -2, 2, 1);
+    //       refal2 = {-1, hap2.size(), 0, cigar, vector<int>(), 0.0};
+    //       refal2.set_score();
+    //       rscore2 = refal2.score;
+    // #ifdef PDEBUG
+    //       cerr << hap2.size() << " " << refal2.cigar << " " << rscore2 <<
+    //       endl;
+    // #endif
+    //     } else {
+    // #ifdef PDEBUG
+    //       cerr << "No ref alignment 2" << endl;
+    // #endif
+    //     }
+    //     rscore1 = rscore1 == -1 ? rscore2 : rscore1;
+    //     rscore2 = rscore2 == -1 ? rscore1 : rscore2;
 
 #ifdef PDEBUG
     for (const auto &a : al.alignments) {
@@ -255,11 +268,16 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    assert(rscore1 != 1 && rscore2 != 1);
-    assert(gscore1 != -1 && gscore2 != -1 && rscore1 != -1 && rscore2 != -1);
+    // assert(rscore1 != 1 && rscore2 != 1);
+    assert(gscore1 != -1 &&
+           gscore2 != -1 /**&& rscore1 != -1 && rscore2 != -1**/);
 
-    float score1 = (gscore1 - rscore1 > 0) ? gscore1 : 0;
-    float score2 = (gscore2 - rscore2 > 0) ? gscore2 : 0;
+    float score1 = !equal(path1.begin(), path1.end(), graph.ref_path.begin())
+                       ? gscore1
+                       : 0;
+    float score2 = !equal(path2.begin(), path2.end(), graph.ref_path.begin())
+                       ? gscore2
+                       : 0;
     float score = (score1 + score2) / 2.0;
 
 #ifdef PDEBUG
