@@ -5,8 +5,8 @@ from pysam import VariantFile
 
 
 def main():
-    vcf_path = sys.argv[1] if len(sys.argv) == 2 else sys.stdin
-    min_l = 20
+    vcf_path = sys.argv[1]
+    min_l = int(sys.argv[2])
     max_l = 30000
 
     vcf = VariantFile(vcf_path)
