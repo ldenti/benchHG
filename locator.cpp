@@ -116,10 +116,18 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
       }
       if (last_trf_s != -1 && last_trf_e != -1 && last_trf_s == trf_s &&
           last_trf_e == trf_e) {
-        istop = max(istop, stop);
-        // cerr << "(trf) Setting istop to " << istop << endl;
+        if (pos - (istop + 1) > 1000) {
+          // we are too far anyway, so let's add the region
+          trees[seq_name].insert({istart, istop + 1});
+          last_seq_name = seq_name;
+          istart = pos;
+          istop = stop;
+        } else {
+          istop = max(istop, stop);
+        }
         continue;
       } else {
+        // current trf region becomes last analyzed
         last_trf_s = trf_s;
         last_trf_e = trf_e;
       }
@@ -151,8 +159,9 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
     // }
 
     for (const auto &i : copy) {
-      // cerr << "Parsing " << it->first << " " << i.low() << " " << i.high() << endl;
-      // cerr << it->first << " " << copy.size() << " vs " << it->second.size() << endl;
+      // cerr << "Parsing " << it->first << " " << i.low() << " " << i.high() <<
+      // endl; cerr << it->first << " " << copy.size() << " vs " <<
+      // it->second.size() << endl;
       auto overlap = it->second.overlap_find(i);
       assert(overlap != end(it->second));
       int s = overlap->low(), e = overlap->high();
@@ -166,7 +175,8 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
                 ::toupper);
       assert(region_seq.size() > 0);
       pair<int, int> uniques = get_unique_kmers(region_seq);
-      // cerr << "Inserting " << s - w + 1 + uniques.first << " " << s - w + 1 + uniques.second << endl;
+      // cerr << "Inserting " << s - w + 1 + uniques.first << " " << s - w + 1 +
+      // uniques.second << endl;
       it->second.insert(
           {s - w + 1 + uniques.first, s - w + 1 + uniques.second});
     }
