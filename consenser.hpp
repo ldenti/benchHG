@@ -95,7 +95,7 @@ typedef struct {
 
 extern "C" {
 void init_region(args_t *args, char *line);
-void apply_variant(args_t *args, bcf1_t *rec);
+int apply_variant(args_t *args, bcf1_t *rec);
 bcf1_t **next_vcf_line(args_t *args);
 }
 

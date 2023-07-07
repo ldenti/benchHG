@@ -27,6 +27,7 @@ static const char *USAGE_MESSAGE =
 // clang-format on
 
 namespace opt {
+static bool regions_only = false;
 static int k = 13;
 static int w = 250;
 static string out = "OUT";
@@ -39,7 +40,7 @@ static string tvcf_path;
 static string cvcf_path;
 } // namespace opt
 
-static const char *shortopts = "o:k:w:t:c:r:@:h";
+static const char *shortopts = "o:k:w:t:c:r:R@:h";
 
 static const struct option longopts[] = {
     {"out", required_argument, NULL, 'o'},
@@ -48,6 +49,7 @@ static const struct option longopts[] = {
     {"trf", required_argument, NULL, 't'},
     {"conf", required_argument, NULL, 'c'},
     {"region", required_argument, NULL, 'r'},
+    {"regions", no_argument, NULL, 'R'},
     {"threads", required_argument, NULL, '@'},
     {"version", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
@@ -76,6 +78,9 @@ void parse_arguments(int argc, char **argv) {
       break;
     case 'r':
       arg >> opt::region;
+      break;
+    case 'R':
+      opt::regions_only = true;
       break;
     case '@':
       arg >> opt::threads;

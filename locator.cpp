@@ -91,6 +91,7 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
     if (conf_trees.find(seq_name) != conf_trees.end() &&
         conf_trees[seq_name].overlap_find({pos, stop + 1}) ==
             end(conf_trees[seq_name]))
+      // variant outside confidence regions
       continue;
 
     bcf_write1(ovcf, vcf_header, vcf_record);
@@ -115,10 +116,18 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
       }
       if (last_trf_s != -1 && last_trf_e != -1 && last_trf_s == trf_s &&
           last_trf_e == trf_e) {
-        istop = max(istop, stop);
-        // cerr << "(trf) Setting istop to " << istop << endl;
+        if (pos - (istop + 1) > 1000) {
+          // we are too far anyway, so let's add the region
+          trees[seq_name].insert({istart, istop + 1});
+          last_seq_name = seq_name;
+          istart = pos;
+          istop = stop;
+        } else {
+          istop = max(istop, stop);
+        }
         continue;
       } else {
+        // current trf region becomes last analyzed
         last_trf_s = trf_s;
         last_trf_e = trf_e;
       }
@@ -150,8 +159,9 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
     // }
 
     for (const auto &i : copy) {
-      // cerr << "Parsing " << it->first << " " << i.low() << " " << i.high() << endl;
-      // cerr << it->first << " " << copy.size() << " vs " << it->second.size() << endl;
+      // cerr << "Parsing " << it->first << " " << i.low() << " " << i.high() <<
+      // endl; cerr << it->first << " " << copy.size() << " vs " <<
+      // it->second.size() << endl;
       auto overlap = it->second.overlap_find(i);
       assert(overlap != end(it->second));
       int s = overlap->low(), e = overlap->high();
@@ -165,7 +175,8 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
                 ::toupper);
       assert(region_seq.size() > 0);
       pair<int, int> uniques = get_unique_kmers(region_seq);
-      // cerr << "Inserting " << s - w + 1 + uniques.first << " " << s - w + 1 + uniques.second << endl;
+      // cerr << "Inserting " << s - w + 1 + uniques.first << " " << s - w + 1 +
+      // uniques.second << endl;
       it->second.insert(
           {s - w + 1 + uniques.first, s - w + 1 + uniques.second});
     }
@@ -183,7 +194,19 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
   return trees;
 }
 
-void Locator::intersect() {
+void Locator::intersect(bool print) {
+  if (print) {
+    for (auto it = true_trees.begin(); it != true_trees.end(); ++it)
+      for (const auto &i : it->second)
+        cout << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
+             << "T"
+             << "\t" << i.high() - i.low() + 1 << endl;
+    for (auto it = call_trees.begin(); it != call_trees.end(); ++it)
+      for (const auto &i : it->second)
+        cout << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
+             << "C"
+             << "\t" << i.high() - i.low() + 1 << endl;
+  }
   for (auto it = call_trees.begin(); it != call_trees.end(); ++it) {
     for (const auto &i : it->second) {
       if (true_trees[it->first].overlap_find(i) == end(true_trees[it->first]))
@@ -200,12 +223,17 @@ void Locator::intersect() {
   }
 }
 
-vector<string> Locator::get_regions() const {
+vector<string> Locator::get_regions(bool print) const {
   vector<string> Rs;
   for (auto it = regions.begin(); it != regions.end(); ++it)
-    for (const auto &i : it->second)
+    for (const auto &i : it->second) {
+      if (print)
+        cout << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
+             << "M"
+             << "\t" << i.high() - i.low() + 1 << endl;
       Rs.push_back(it->first + ":" + to_string(i.low()) + "-" +
                    to_string(i.high()));
+    }
   return Rs;
 }
 

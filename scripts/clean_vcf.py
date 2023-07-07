@@ -7,6 +7,7 @@ from pysam import VariantFile
 def main():
     vcf_path = sys.argv[1] if len(sys.argv) == 2 else sys.stdin
     min_l = 20
+    max_l = 30000
 
     vcf = VariantFile(vcf_path)
     if "SVLEN" not in vcf.header.info:
@@ -24,8 +25,11 @@ def main():
             if rec.info["SVTYPE"] in ["DUP", "INV", "BND"]:
                 continue
         if "SVLEN" in rec.info:
+            assert len(rec.alts) == 1
             l = rec.info["SVLEN"]
-            if abs(l) < min_l:
+            if type(l) == tuple:
+                l = l[0]
+            if abs(l) < min_l or abs(l) > max_l:
                 continue
         else:
             # here we need to take only "valid" alleles, add info to INFO and fix genotype
@@ -34,7 +38,9 @@ def main():
             if alt == "*":
                 continue
             l = len(alt) - len(rec.ref)
-            if abs(l) < min_l:
+            if abs(l) < min_l or abs(l) > max_l:
+                continue
+            if len(alt) > max_l and len(rec.ref) > max_l:
                 continue
 
             gt1 = rec.samples[0]["GT"][0]
