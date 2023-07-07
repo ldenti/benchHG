@@ -20,13 +20,14 @@ class Locator {
 public:
   int k;
   int w;
+  int W;
   map<string, interval_tree_t<int>> conf_trees;
   map<string, interval_tree_t<int>> trf_trees;
   map<string, interval_tree_t<int>> true_trees;
   map<string, interval_tree_t<int>> call_trees;
   map<string, interval_tree_t<int>> regions;
 
-  Locator(const int, const int);
+  Locator(const int, const int, const int);
   void add_conf(const string &);
   void add_trf(const string &);
   void parse_truth(faidx_t *fai, const string &, const string &);

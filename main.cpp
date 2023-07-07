@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
   ofstream regions_file(opt::out + ".regions.bed");
   if (opt::region.compare("") == 0) {
     spdlog::info("Creating trees..");
-    Locator l(opt::k, opt::w);
+    Locator l(opt::k, opt::w, opt::W);
     l.add_conf(opt::conf);
     l.add_trf(opt::trf);
     spdlog::info("Locating regions of interest from truth..");

@@ -17,6 +17,7 @@ static const char *USAGE_MESSAGE =
     "      -o, --out <prefix>                output prefix (default: OUT)\n"
     "      -k, --ksize <int>                 kmers size (default: 13)\n"
     "      -w, --window <int>                window size (default: 250)\n"
+    "      -W, --window-trf <int>            window size in TRF region (default: 1000)\n"
     "      -t, --trf <trf.bed>               tandem repeats .bed file\n"
     "      -c, --conf <conf.bed>             confindence regions .bed file\n"
     "      -r, --region <chr:start-end>      analyze only this region\n"
@@ -30,6 +31,7 @@ namespace opt {
 static bool regions_only = false;
 static int k = 13;
 static int w = 250;
+static int W = 1000;
 static string out = "OUT";
 static string trf = "";
 static string conf = "";
@@ -40,12 +42,13 @@ static string tvcf_path;
 static string cvcf_path;
 } // namespace opt
 
-static const char *shortopts = "o:k:w:t:c:r:R@:h";
+static const char *shortopts = "o:k:w:W:t:c:r:R@:h";
 
 static const struct option longopts[] = {
     {"out", required_argument, NULL, 'o'},
     {"ksize", required_argument, NULL, 'k'},
     {"window", required_argument, NULL, 'w'},
+    {"window-trf", required_argument, NULL, 'W'},
     {"trf", required_argument, NULL, 't'},
     {"conf", required_argument, NULL, 'c'},
     {"region", required_argument, NULL, 'r'},
@@ -69,6 +72,9 @@ void parse_arguments(int argc, char **argv) {
       break;
     case 'w':
       arg >> opt::w;
+      break;
+    case 'W':
+      arg >> opt::W;
       break;
     case 't':
       arg >> opt::trf;

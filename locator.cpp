@@ -1,8 +1,9 @@
 #include "locator.hpp"
 
-Locator::Locator(const int _k, const int _w) {
+Locator::Locator(const int _k, const int _w, const int _W) {
   k = _k;
   w = _w;
+  W = _W;
 }
 
 map<string, interval_tree_t<int>> Locator::build_tree(const string &bed_path,
@@ -116,7 +117,7 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
       }
       if (last_trf_s != -1 && last_trf_e != -1 && last_trf_s == trf_s &&
           last_trf_e == trf_e) {
-        if (pos - (istop + 1) > 1000) {
+        if (pos - (istop + 1) > W) {
           // we are too far anyway, so let's add the region
           trees[seq_name].insert({istart, istop + 1});
           last_seq_name = seq_name;
