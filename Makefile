@@ -14,8 +14,11 @@ benchHG: ./deps/ksw2/kalloc.o ./deps/ksw2/ksw2_extz.o ./deps/ksw2/ksw2_extz2_sse
 	@echo '* Compiling $<'
 	$(CXX) $(OPT) $(CXXFLAGS) -o $@ -c $<
 
-debug: OPT=-O0 -g -DPDEBUG
+debug: OPT=-O0 -g
 debug: benchHG
+
+print: OPT=-O2 -DPDEBUG
+print: benchHG
 
 clean:
 	rm -rf *.o benchHG
