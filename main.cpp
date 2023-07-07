@@ -86,6 +86,7 @@ int main(int argc, char *argv[]) {
     l.intersect(regions_file);
     regions = l.get_regions(regions_file);
   } else {
+    regions.push_back(opt::region);
     filtered_tvcf_path = opt::tvcf_path;
     filtered_cvcf_path = opt::cvcf_path;
   }
@@ -136,7 +137,7 @@ int main(int argc, char *argv[]) {
   strcpy(tvcf_path, filtered_tvcf_path.c_str());
   tvcf_path[filtered_tvcf_path.size()] = '\0';
 
-  spdlog::info("Starting analysis of {} loci..", regions.size());
+  spdlog::info("Starting analysis of {} regions..", regions.size());
   omp_set_dynamic(0);
   omp_set_num_threads(opt::threads);
 
