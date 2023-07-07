@@ -23,6 +23,9 @@ make -j8
 cd ../PaSGAL
 git apply ../../patches/pasgal.diff
 
+cd ../ksw2
+make
+
 cd ../..
 make -j8
 ```
@@ -33,12 +36,5 @@ make -j8
 bcftools norm -m- --threads 8 [truth.vcf.gz] | python3 scripts/clean_vcf.py | bcftools norm -m+ --threads 8 -Oz > [truth.sv.vcf.gz]
 tabix -p vcf [truth.sv.vcf.gz]
 # run evaluation on preprocessed VCFs
-./sveval [reference.fa] [truth.sv.vcf.gz] [predictions.sv.vcf.gz] [--conf <regions.bed>] [--trf <trf.bed>] [-@ <threads>] > [output]
+./benchHG [reference.fa] [truth.sv.vcf.gz] [predictions.sv.vcf.gz] [--conf <regions.bed>] [--trf <trf.bed>] [-@ <threads>] > [output]
 ```
-
-## TODO
-- [X] ~more chromosomes~
-- [ ] plots and analysis
-- [ ] cmake
-- [ ] static binary
-- [ ] conda
