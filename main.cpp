@@ -218,7 +218,7 @@ int main(int argc, char *argv[]) {
 
     Alignment refal1, refal2;
     if (c1.has_alts) {
-      string cigar = seq_align(hap1.c_str(), region_seq, 1, -2, 2, 1);
+      string cigar = seq_align(region_seq, hap1.c_str(), 1, -2, 2, 1);
       refal1 = {-1, hap1.size(), 0, cigar, vector<int>(), 0.0};
       refal1.set_score();
       rscore1 = refal1.score;
@@ -231,7 +231,7 @@ int main(int argc, char *argv[]) {
 #endif
     }
     if (c2.has_alts) {
-      string cigar = seq_align(hap2.c_str(), region_seq, 1, -2, 2, 1);
+      string cigar = seq_align(region_seq, hap2.c_str(), 1, -2, 2, 1);
       refal2 = {-1, hap2.size(), 0, cigar, vector<int>(), 0.0};
       refal2.set_score();
       rscore2 = refal2.score;

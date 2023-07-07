@@ -25,10 +25,11 @@ struct Alignment {
     // FIXME: is this the best way to do this?
     map<char, float> OPs;
     OPs['='] = 0.0;
+    OPs['M'] = 0.0;
     OPs['X'] = 0.0;
     OPs['I'] = 0.0;
     OPs['D'] = 0.0;
-    regex word_regex("([0-9]+[=XID])");
+    regex word_regex("([0-9]+[M=XID])");
     auto words_begin = sregex_iterator(cigar.begin(), cigar.end(), word_regex);
     auto words_end = std::sregex_iterator();
     for (sregex_iterator i = words_begin; i != words_end; ++i) {
@@ -39,11 +40,14 @@ struct Alignment {
       int opl = stoi(match_str);
       OPs[op] += opl;
     }
-    il = OPs['X'] + OPs['='] + OPs['I'];
+    il = OPs['X'] + OPs['='] + OPs['I'] + OPs['M'];
     // score = 1.0 - (OPs['='] + OPs['D'] + OPs['X'] + abs(l - il)) / l; //
     // CHECKME
-    score =
-        OPs['='] / (OPs['='] + OPs['D'] + OPs['X'] + OPs['I'] + abs(l - il));
+    score = (OPs['='] + OPs['M']) / (OPs['='] + OPs['M'] + OPs['D'] + OPs['X'] +
+                                     OPs['I'] + abs(l - il));
+    // cerr << l << " - " << il << " = " << abs(l - il) << endl;
+    // cerr << OPs['=']+OPs['M'] << "/" << "(" << OPs['='] + OPs['M'] + OPs['D']
+    // + OPs['X'] + OPs['I'] << " + " << abs(l - il) << ") = " << score << endl;
   }
 };
 
