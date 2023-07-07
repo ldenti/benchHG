@@ -7,9 +7,15 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 import pandas as pd
 
+import warnings
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
+
 
 def main():
-    prefix_path = sys.argv[1]
+    in_prefix = sys.argv[1]
+    out_prefix = sys.argv[2]
+    tau_t = 0.7
 
     TRUTH = {}
     CALL = {}
@@ -17,7 +23,7 @@ def main():
 
     TREGIONS = set()
     CREGIONS = set()
-    for line in open(prefix_path + ".regions.bed"):
+    for line in open(in_prefix + ".regions.bed"):
         chrom, s, e, t, l = line.strip("\n").split("\t")
         region = f"{chrom}:{s}-{e}"
         if t == "T":
@@ -25,7 +31,7 @@ def main():
         elif t == "C":
             CREGIONS.add(region)
 
-    for line in open(prefix_path + ".results.txt"):
+    for line in open(in_prefix + ".results.txt"):
         t, idx, region, score = line.strip("\n").split(" ")
         score = float(score)
         if score < 0:
@@ -45,17 +51,20 @@ def main():
         P = sum([x >= tau for x in CALL.values()]) / len(CALL)
         regP = sum([x >= tau for x in REGIONS.values()]) / len(CREGIONS)
         regR = sum([x >= tau for x in REGIONS.values()]) / len(TREGIONS)
-        df.append([tau, "Correcteness", P])
-        df.append([tau, "Completeness", R])
+        df.append([tau, "Precision", P])  # "Correcteness"
+        df.append([tau, "Recall", R])  # "Completeness"
         df.append([tau, "Precision (Regions)", regP])
         df.append([tau, "Recall (Regions)", regR])
     df = pd.DataFrame(df, columns=["tau", "Metric", "Value"])
-    # print(df)
+    print(df[df["tau"] == tau_t])
 
     sns.lineplot(df, x="tau", y="Value", hue="Metric")
 
+    plt.xlim(0.9, 1.05)
+    plt.ylim(-0.05, 1.05)
+
     plt.tight_layout()
-    plt.savefig("plot.png")
+    plt.savefig(out_prefix + ".plot.png")
 
 
 if __name__ == "__main__":
