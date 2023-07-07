@@ -24,7 +24,8 @@ string Consenser::build(char *region, char *seq) {
   bcf1_t **rec_ptr = NULL;
   while (args->rid >= 0 && (rec_ptr = next_vcf_line(args))) {
     bcf1_t *rec = *rec_ptr;
-    if (strcmp(args->chr, bcf_hdr_id2name(args->hdr, rec->rid)) != 0 || (args->fa_end_pos && rec->pos > args->fa_end_pos))
+    if (strcmp(args->chr, bcf_hdr_id2name(args->hdr, rec->rid)) != 0 ||
+        (args->fa_end_pos && rec->pos > args->fa_end_pos))
       break;
 
     // clang-format off
@@ -42,7 +43,8 @@ string Consenser::build(char *region, char *seq) {
        ==57670==    by 0x15920A: main (main.cpp:227)
     **/
     // clang-format on
-    apply_variant(args, rec);
+    if (apply_variant(args, rec) == 2)
+      return "";
   }
 
   // cerr << "Applied " << args->napplied << " variants" << endl;

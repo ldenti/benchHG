@@ -120,6 +120,9 @@ int main(int argc, char *argv[]) {
     vg::parse_region(REGION[omp_get_thread_num()], seq_name, start_pos,
                      stop_pos);
 
+    // if (stop_pos - start_pos + 1 > 75000)
+    //   continue;
+
 #ifdef PDEBUG
     cerr << omp_get_thread_num() << " " << regions[i] << " ("
          << stop_pos - start_pos + 1 << ")" << endl;
@@ -137,6 +140,11 @@ int main(int argc, char *argv[]) {
     Consenser c2(tvcf_path, 2);
     hap2 = c2.build(REGION[omp_get_thread_num()], region_seq);
     c2.destroy_data();
+
+    if (hap1 == "" or hap2 == "") {
+      cerr << "Skipping " << regions[i] << " due to error in consensus" << endl;
+      continue;
+    }
 
 #ifdef PDEBUG
     cerr << region_seq << endl;
@@ -190,6 +198,7 @@ int main(int argc, char *argv[]) {
             ? al.alignments[1].score
             : 0;
     // cerr << score1 << " " << score2 << endl;
+
     Scorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos, score1,
               score2);
     ts.compute();
