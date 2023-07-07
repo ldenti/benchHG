@@ -67,9 +67,6 @@ int main(int argc, char *argv[]) {
   faidx_t *fai =
       fai_load3_format(opt::fa_path.c_str(), NULL, NULL, FAI_CREATE, FAI_FASTA);
 
-  vector<map<string, map<string, pair<string, float>>>> t_results(opt::threads);
-  vector<map<string, map<string, pair<string, float>>>> c_results(opt::threads);
-
   string filtered_tvcf_path;
   string filtered_cvcf_path;
   vector<string> regions;
@@ -97,9 +94,32 @@ int main(int argc, char *argv[]) {
   if (opt::regions_only)
     return 0;
 
+  spdlog::info("Preallocating data..");
+  map<string, float> truth_results;
+  map<string, float> call_results;
+  vector<faidx_t *> FAI(opt::threads);
   vector<char *> REGION(opt::threads);
   // vector<char *> REGION_SEQ(opt::threads);
-  vector<faidx_t *> FAI(opt::threads);
+
+  htsFile *vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
+  bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
+  bcf1_t *vcf_record = bcf_init();
+  while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
+    bcf_unpack(vcf_record, BCF_UN_STR);
+    truth_results[vcf_record->d.id] = -1.0;
+  }
+  bcf_hdr_destroy(vcf_header);
+  bcf_close(vcf);
+
+  vcf = bcf_open(filtered_cvcf_path.c_str(), "r");
+  vcf_header = bcf_hdr_read(vcf);
+  vcf_record = bcf_init();
+  while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
+    bcf_unpack(vcf_record, BCF_UN_STR);
+    call_results[vcf_record->d.id] = -1.0;
+  }
+  bcf_hdr_destroy(vcf_header);
+  bcf_close(vcf);
 
   for (uint i = 0; i < opt::threads; ++i) {
     FAI[i] = fai_load3_format(opt::fa_path.c_str(), NULL, NULL, FAI_CREATE,
@@ -109,6 +129,10 @@ int main(int argc, char *argv[]) {
   char *tvcf_path = (char *)malloc(filtered_tvcf_path.size() + 1);
   strcpy(tvcf_path, filtered_tvcf_path.c_str());
   tvcf_path[filtered_tvcf_path.size()] = '\0';
+
+  spdlog::info("Starting analysis of {} loci..", regions.size());
+  omp_set_dynamic(0);
+  omp_set_num_threads(opt::threads);
 
 #pragma omp parallel for
   for (uint i = 0; i < regions.size(); ++i) {
@@ -207,14 +231,10 @@ int main(int argc, char *argv[]) {
               score2);
     cs.compute();
 
-    for (const pair<string, float> res : ts.results) {
-      t_results[omp_get_thread_num()][seq_name][res.first] =
-          make_pair(REGION[omp_get_thread_num()], res.second);
-    }
-    for (const pair<string, float> res : cs.results) {
-      c_results[omp_get_thread_num()][seq_name][res.first] =
-          make_pair(REGION[omp_get_thread_num()], res.second);
-    }
+    for (const pair<string, float> res : ts.results)
+      truth_results.at(res.first) = res.second;
+    for (const pair<string, float> res : cs.results)
+      call_results.at(res.first) = res.second;
 
     free(region_seq);
   }
@@ -225,75 +245,30 @@ int main(int argc, char *argv[]) {
   free(tvcf_path);
 
   // OUTPUT
-  spdlog::info("Linearizing results..");
-  map<string, map<string, pair<string, float>>> truth_results;
-  map<string, map<string, pair<string, float>>> call_results;
-  for (int i = 0; i < opt::threads; ++i) {
-    for (auto it1 = t_results[i].begin(); it1 != t_results[i].end(); ++it1) {
-      for (auto it2 = it1->second.begin(); it2 != it1->second.end(); ++it2) {
-        truth_results[it1->first][it2->first] = it2->second;
-      }
-    }
-  }
-  for (int i = 0; i < opt::threads; ++i) {
-    for (auto it1 = c_results[i].begin(); it1 != c_results[i].end(); ++it1) {
-      for (auto it2 = it1->second.begin(); it2 != it1->second.end(); ++it2) {
-        call_results[it1->first][it2->first] = it2->second;
-      }
-    }
-  }
-
-  spdlog::info("Assigning score to truth..");
-  htsFile *vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
-  bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
-  bcf1_t *vcf_record = bcf_init();
-  string seq_name, idx, region, last_region = "";
+  spdlog::info("Outputting truth scores..");
+  vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
+  vcf_header = bcf_hdr_read(vcf);
+  vcf_record = bcf_init();
+  string idx;
   float score;
-  int region_size = 0;
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
-    seq_name = bcf_hdr_id2name(vcf_header, vcf_record->rid);
     idx = vcf_record->d.id;
-    score = -1;
-    region = ".";
-    if (truth_results[seq_name].find(idx) != truth_results[seq_name].end()) {
-      region = truth_results[seq_name][idx].first,
-      score = truth_results[seq_name][idx].second;
-    }
-    if (region.compare(last_region) != 0)
-      region_size = 0;
-    ++region_size;
-    if (region.compare(".") == 0)
-      region_size = -1;
-    cout << "T " << region_size << " " << region << " " << idx << " " << score
-         << endl;
+    score = truth_results[idx];
+    cout << "T " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
 
-  spdlog::info("Assigning score to call..");
+  spdlog::info("Outputting call scores..");
   vcf = bcf_open(filtered_cvcf_path.c_str(), "r");
   vcf_header = bcf_hdr_read(vcf);
   vcf_record = bcf_init();
-  region_size = 0;
-  last_region = "";
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
-    seq_name = bcf_hdr_id2name(vcf_header, vcf_record->rid);
     idx = vcf_record->d.id;
-    region = ".";
-    score = -1;
-    if (call_results[seq_name].find(idx) != call_results[seq_name].end()) {
-      region = call_results[seq_name][idx].first;
-      score = call_results[seq_name][idx].second;
-    }
-    if (region.compare(last_region) != 0)
-      region_size = 0;
-    ++region_size;
-    if (region.compare(".") == 0)
-      region_size = -1;
-    cout << "C " << region_size << " " << region << " " << idx << " " << score
-         << endl;
+    score = call_results[idx];
+    cout << "C " << idx << " " << score << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
