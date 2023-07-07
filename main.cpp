@@ -70,6 +70,7 @@ int main(int argc, char *argv[]) {
   string filtered_tvcf_path;
   string filtered_cvcf_path;
   vector<string> regions;
+  ofstream regions_file(opt::out + ".regions.bed");
   if (opt::region.compare("") == 0) {
     spdlog::info("Creating trees..");
     Locator l(opt::k, opt::w);
@@ -82,31 +83,36 @@ int main(int argc, char *argv[]) {
     filtered_cvcf_path = opt::out + ".predictions.vcf.gz";
     l.parse_call(fai, opt::cvcf_path, filtered_cvcf_path);
     spdlog::info("Intersecting regions..");
-    l.intersect(opt::regions_only);
-    regions = l.get_regions(opt::regions_only);
+    l.intersect(regions_file);
+    regions = l.get_regions(regions_file);
   } else {
-    regions.push_back(opt::region);
     filtered_tvcf_path = opt::tvcf_path;
     filtered_cvcf_path = opt::cvcf_path;
   }
   fai_destroy(fai);
+  regions_file.close();
 
   if (opt::regions_only)
     return 0;
 
   spdlog::info("Preallocating data..");
-  map<string, float> truth_results;
-  map<string, float> call_results;
+  map<string, pair<string, float>> truth_results;
+  map<string, pair<string, float>> call_results;
+  map<string, float> regions_results;
   vector<faidx_t *> FAI(opt::threads);
   vector<char *> REGION(opt::threads);
   // vector<char *> REGION_SEQ(opt::threads);
+
+  for (uint i = 0; i < regions.size(); ++i) {
+    regions_results[regions[i]] = -1.0;
+  }
 
   htsFile *vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
   bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
   bcf1_t *vcf_record = bcf_init();
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
-    truth_results[vcf_record->d.id] = -1.0;
+    truth_results[vcf_record->d.id] = make_pair("", -1.0);
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
@@ -116,7 +122,7 @@ int main(int argc, char *argv[]) {
   vcf_record = bcf_init();
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
-    call_results[vcf_record->d.id] = -1.0;
+    call_results[vcf_record->d.id] = make_pair("", -1.0);
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
@@ -166,7 +172,9 @@ int main(int argc, char *argv[]) {
     c2.destroy_data();
 
     if (hap1 == "" or hap2 == "") {
-      cerr << "Skipping " << regions[i] << " due to error in consensus" << endl;
+      spdlog::warn("Skipping {} due to error in consensus", regions[i]);
+      // cerr << "Skipping " << regions[i] << " due to error in consensus" <<
+      // endl;
       continue;
     }
 
@@ -232,9 +240,11 @@ int main(int argc, char *argv[]) {
     cs.compute();
 
     for (const pair<string, float> res : ts.results)
-      truth_results.at(res.first) = res.second;
+      truth_results.at(res.first) = make_pair(regions[i], res.second);
     for (const pair<string, float> res : cs.results)
-      call_results.at(res.first) = res.second;
+      call_results.at(res.first) = make_pair(regions[i], res.second);
+    regions_results.at(regions[i]) =
+        (score1 + score2) / 2.0; // FIXME: move this somewhere else
 
     free(region_seq);
   }
@@ -245,17 +255,23 @@ int main(int argc, char *argv[]) {
   free(tvcf_path);
 
   // OUTPUT
+  ofstream ofile(opt::out + ".results.txt");
+  spdlog::info("Outputting regions scores..");
+  for (const auto &region : regions_results)
+    ofile << "R "
+          << "."
+          << " " << region.first << " " << region.second << endl;
+
   spdlog::info("Outputting truth scores..");
   vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
   vcf_header = bcf_hdr_read(vcf);
   vcf_record = bcf_init();
   string idx;
-  float score;
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
     idx = vcf_record->d.id;
-    score = truth_results[idx];
-    cout << "T " << idx << " " << score << endl;
+    ofile << "T " << idx << " " << truth_results[idx].first << " "
+          << truth_results[idx].second << endl;
   }
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
@@ -267,9 +283,10 @@ int main(int argc, char *argv[]) {
   while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
     bcf_unpack(vcf_record, BCF_UN_STR);
     idx = vcf_record->d.id;
-    score = call_results[idx];
-    cout << "C " << idx << " " << score << endl;
+    ofile << "C " << idx << " " << call_results[idx].first << " "
+          << call_results[idx].second << endl;
   }
+  ofile.close();
   bcf_hdr_destroy(vcf_header);
   bcf_close(vcf);
   bcf_destroy(vcf_record);

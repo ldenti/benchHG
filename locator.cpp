@@ -194,19 +194,18 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
   return trees;
 }
 
-void Locator::intersect(bool print) {
-  if (print) {
-    for (auto it = true_trees.begin(); it != true_trees.end(); ++it)
-      for (const auto &i : it->second)
-        cout << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
-             << "T"
-             << "\t" << i.high() - i.low() + 1 << endl;
-    for (auto it = call_trees.begin(); it != call_trees.end(); ++it)
-      for (const auto &i : it->second)
-        cout << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
-             << "C"
-             << "\t" << i.high() - i.low() + 1 << endl;
-  }
+void Locator::intersect(ofstream &of) {
+  for (auto it = true_trees.begin(); it != true_trees.end(); ++it)
+    for (const auto &i : it->second)
+      of << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
+         << "T"
+         << "\t" << i.high() - i.low() + 1 << endl;
+  for (auto it = call_trees.begin(); it != call_trees.end(); ++it)
+    for (const auto &i : it->second)
+      of << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
+         << "C"
+         << "\t" << i.high() - i.low() + 1 << endl;
+
   for (auto it = call_trees.begin(); it != call_trees.end(); ++it) {
     for (const auto &i : it->second) {
       if (true_trees[it->first].overlap_find(i) == end(true_trees[it->first]))
@@ -223,14 +222,13 @@ void Locator::intersect(bool print) {
   }
 }
 
-vector<string> Locator::get_regions(bool print) const {
+vector<string> Locator::get_regions(ofstream &of) const {
   vector<string> Rs;
   for (auto it = regions.begin(); it != regions.end(); ++it)
     for (const auto &i : it->second) {
-      if (print)
-        cout << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
-             << "M"
-             << "\t" << i.high() - i.low() + 1 << endl;
+      of << it->first << "\t" << i.low() << "\t" << i.high() << "\t"
+         << "M"
+         << "\t" << i.high() - i.low() + 1 << endl;
       Rs.push_back(it->first + ":" + to_string(i.low()) + "-" +
                    to_string(i.high()));
     }

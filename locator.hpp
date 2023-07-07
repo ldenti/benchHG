@@ -31,8 +31,8 @@ public:
   void add_trf(const string &);
   void parse_truth(faidx_t *fai, const string &, const string &);
   void parse_call(faidx_t *fai, const string &, const string &);
-  vector<string> get_regions(bool) const;
-  void intersect(bool);
+  vector<string> get_regions(ofstream &) const;
+  void intersect(ofstream &);
 
 private:
   map<string, interval_tree_t<int>> build_tree(const string &, const int);
