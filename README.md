@@ -1,4 +1,5 @@
-# sveval
+# benchHG
+Structural Variations benchmarking via alignment to local haplotype graphs.
 
 ### Compilation
 ``` sh
@@ -35,10 +36,3 @@ tabix -p vcf [truth.sv.vcf.gz]
 # run evaluation on preprocessed VCFs
 ./sveval [reference.fa] [truth.sv.vcf.gz] [predictions.sv.vcf.gz] [--conf <regions.bed>] [--trf <trf.bed>] [-@ <threads>] > [output]
 ```
-
-## TODO
-- [X] ~more chromosomes~
-- [ ] plots and analysis
-- [ ] cmake
-- [ ] static binary
-- [ ] conda
