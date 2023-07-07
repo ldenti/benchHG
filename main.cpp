@@ -173,8 +173,10 @@ int main(int argc, char *argv[]) {
 
     if (hap1 == "" or hap2 == "") {
       spdlog::warn("Skipping {} due to error in consensus", regions[i]);
-      // cerr << "Skipping " << regions[i] << " due to error in consensus" <<
-      // endl;
+      continue;
+    }
+    if (!c1.has_alts && !c2.has_alts) {
+      spdlog::warn("Skipping {} since no alt alleles in truth", regions[i]);
       continue;
     }
 
@@ -193,23 +195,57 @@ int main(int argc, char *argv[]) {
     graph.to_gfa();
 #endif
 
-    // spdlog::info("Aligning to graph..");
+    float gscore1 = -1, gscore2 = -1, rscore1 = -1, rscore2 = -1;
     vector<string> haps;
-    haps.push_back(hap1);
-    haps.push_back(hap2);
+    if (c1.has_alts)
+      haps.push_back(hap1);
+    if (c2.has_alts)
+      haps.push_back(hap2);
     Aligner al(graph.hg, haps, 2);
     al.align();
 
-    string cigar = seq_align(hap1.c_str(), region_seq, 1, -2, 2, 1);
-    Alignment refal1 = {-1, hap1.size(), 0, cigar, vector<int>(), 0.0};
-    refal1.set_score();
-    cigar = seq_align(hap2.c_str(), region_seq, 1, -2, 2, 1);
-    Alignment refal2 = {-1, hap2.size(), 0, cigar, vector<int>(), 0.0};
-    refal2.set_score();
+    if (c1.has_alts && c2.has_alts) {
+      gscore1 = al.alignments[0].score;
+      gscore2 = al.alignments[1].score;
+    } else if (c1.has_alts) {
+      gscore1 = al.alignments[0].score;
+      gscore2 = gscore1;
+    } else {
+      gscore2 = al.alignments[0].score;
+      gscore1 = gscore2;
+    }
+
+    Alignment refal1, refal2;
+    if (c1.has_alts) {
+      string cigar = seq_align(hap1.c_str(), region_seq, 1, -2, 2, 1);
+      refal1 = {-1, hap1.size(), 0, cigar, vector<int>(), 0.0};
+      refal1.set_score();
+      rscore1 = refal1.score;
+#ifdef PDEBUG
+      cerr << hap1.size() << " " << refal1.cigar << " " << rscore1 << endl;
+#endif
+    } else {
+#ifdef PDEBUG
+      cerr << "No ref alignment 1" << endl;
+#endif
+    }
+    if (c2.has_alts) {
+      string cigar = seq_align(hap2.c_str(), region_seq, 1, -2, 2, 1);
+      refal2 = {-1, hap2.size(), 0, cigar, vector<int>(), 0.0};
+      refal2.set_score();
+      rscore2 = refal2.score;
+#ifdef PDEBUG
+      cerr << hap2.size() << " " << refal2.cigar << " " << rscore2 << endl;
+#endif
+    } else {
+#ifdef PDEBUG
+      cerr << "No ref alignment 2" << endl;
+#endif
+    }
+    rscore1 = rscore1 == -1 ? rscore2 : rscore1;
+    rscore2 = rscore2 == -1 ? rscore1 : rscore2;
 
 #ifdef PDEBUG
-    cerr << hap1.size() << " " << refal1.cigar << " " << refal1.score << endl;
-    cerr << hap2.size() << " " << refal2.cigar << " " << refal2.score << endl;
     for (const auto &a : al.alignments) {
       cerr << a.id << " " << a.cigar << " ";
       for (const auto &i : a.path)
@@ -218,33 +254,29 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    // FIXME: assuming we have always two alignments
-    float score1 =
-        (refal1.score == 1 && al.alignments[0].score - refal1.score >= 0) ||
-                (refal1.score < 1 && al.alignments[0].score - refal1.score > 0)
-            ? al.alignments[0].score
-            : 0;
-    float score2 =
-        (refal2.score == 1 && al.alignments[1].score - refal2.score >= 0) ||
-                (refal2.score < 1 && al.alignments[1].score - refal2.score > 0)
-            ? al.alignments[1].score
-            : 0;
-    // cerr << score1 << " " << score2 << endl;
+    assert(rscore1 != 1 && rscore2 != 1);
+    assert(gscore1 != -1 && gscore2 != -1 && rscore1 != -1 && rscore2 != -1);
 
-    Scorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos, score1,
-              score2);
+    float score1 = (gscore1 - rscore1 > 0) ? gscore1 : 0;
+    float score2 = (gscore2 - rscore2 > 0) ? gscore2 : 0;
+    float score = (score1 + score2) / 2.0;
+
+#ifdef PDEBUG
+    cerr << "Score 1: " << score1 << endl;
+    cerr << "Score 2: " << score2 << endl;
+    cerr << "Score: " << score << endl;
+#endif
+    Scorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos, score);
     ts.compute();
 
-    Scorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos, score1,
-              score2);
+    Scorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos, score);
     cs.compute();
 
     for (const pair<string, float> res : ts.results)
       truth_results.at(res.first) = make_pair(regions[i], res.second);
     for (const pair<string, float> res : cs.results)
       call_results.at(res.first) = make_pair(regions[i], res.second);
-    regions_results.at(regions[i]) =
-        (score1 + score2) / 2.0; // FIXME: move this somewhere else
+    regions_results.at(regions[i]) = score;
 
     free(region_seq);
   }

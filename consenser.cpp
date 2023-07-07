@@ -4,6 +4,7 @@ Consenser::Consenser(char *vcf_path, int hap) {
   args = (args_t *)calloc(1, sizeof(args_t));
   args->haplotype = hap;
   args->fname = vcf_path;
+  has_alts = false;
   init_data();
 }
 
@@ -27,6 +28,11 @@ string Consenser::build(char *region, char *seq) {
     if (strcmp(args->chr, bcf_hdr_id2name(args->hdr, rec->rid)) != 0 ||
         (args->fa_end_pos && rec->pos > args->fa_end_pos))
       break;
+
+    bcf_fmt_t *fmt = bcf_get_fmt(args->hdr, rec, "GT");
+    uint8_t *ptr = fmt->p + fmt->size * 0;
+
+    has_alts |= bcf_gt_allele(ptr[args->haplotype - 1]);
 
     // clang-format off
     /**

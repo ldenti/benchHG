@@ -20,11 +20,9 @@ public:
   string seq_name;
   int start;
   int stop;
-  float score1;
-  float score2;
+  float score;
   map<string, float> results;
-  Scorer(const string &, const string &, const int, const int, const float,
-         const float);
+  Scorer(const string &, const string &, const int, const int, const float);
   void compute();
 };
 

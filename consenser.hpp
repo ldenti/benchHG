@@ -105,6 +105,7 @@ private:
   void init_data();
 
 public:
+  bool has_alts;
   Consenser(char *, int);
   // ~Consenser(void);
   string build(char *, char *);

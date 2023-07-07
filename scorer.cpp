@@ -1,8 +1,7 @@
 #include "scorer.hpp"
 
 Scorer::Scorer(const string &vcf_path, const string &_seq_name,
-               const int _start, const int _stop, const float _score1,
-               const float _score2) {
+               const int _start, const int _stop, const float _score) {
   vcf = bcf_sr_init();
   vcf->require_index = 1;
   if (!bcf_sr_add_reader(vcf, vcf_path.c_str()))
@@ -13,8 +12,7 @@ Scorer::Scorer(const string &vcf_path, const string &_seq_name,
   rec = bcf_init();
   start = _start;
   stop = _stop;
-  score1 = _score1;
-  score2 = _score2;
+  score = _score;
 }
 
 void Scorer::compute() {
@@ -25,8 +23,7 @@ void Scorer::compute() {
       break;
     bcf_unpack(rec, BCF_UN_ALL);
     char *idx(rec->d.id);
-    // cerr << "- " << score1 << " " << score2 << endl;
-    results[idx] = (score1 + score2) / 2.0;
+    results[idx] = score;
   }
   // TODO: move this somewhere else
   bcf_sr_destroy(vcf);
