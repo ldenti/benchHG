@@ -1,6 +1,6 @@
 *.o
 *~
-sveval
+benchHG
 *.txt
 .vscode
 .snakemake/
