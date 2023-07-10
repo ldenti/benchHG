@@ -14,7 +14,6 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 def main():
     in_prefix = sys.argv[1]
-    out_prefix = sys.argv[2]
     tau_t = 0.7
 
     TRUTH = {}
@@ -64,7 +63,7 @@ def main():
     plt.ylim(-0.05, 1.05)
 
     plt.tight_layout()
-    plt.savefig(out_prefix + ".plot.png")
+    plt.savefig(in_prefix + ".plot.png")
 
 
 if __name__ == "__main__":
