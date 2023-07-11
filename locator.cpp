@@ -77,6 +77,12 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
     seq_name = bcf_hdr_id2name(vcf_header, vcf_record->rid);
     pos = vcf_record->pos;
     stop = pos + 1;
+
+    bcf_fmt_t *fmt = bcf_get_fmt(vcf_header, vcf_record, "GT");
+    uint8_t *ptr = fmt->p + fmt->size * 0;
+    if (bcf_gt_allele(ptr[0]) == 0 && bcf_gt_allele(ptr[0]) == 0)
+      continue;
+
     l_info = bcf_get_info(vcf_header, vcf_record, "SVLEN");
     key_idx = l_info->key;
     const char *key = vcf_header->id[BCF_DT_ID][key_idx].key;
