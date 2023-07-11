@@ -22,8 +22,6 @@
 #include "locator.hpp"
 #include "scorer.hpp"
 
-#include "ksw2.h"
-
 using namespace std;
 
 string seq_align(const char *tseq, const char *qseq, int sc_mch, int sc_mis,

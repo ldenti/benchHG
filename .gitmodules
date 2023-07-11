@@ -20,7 +20,3 @@
 	path = deps/PaSGAL
 	url = https://github.com/ldenti/PaSGAL
 	ignore = dirty
-[submodule "deps/ksw2"]
-	path = deps/ksw2
-	url = https://github.com/lh3/ksw2
-	ignore = dirty
