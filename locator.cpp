@@ -44,16 +44,18 @@ void Locator::add_trf(const string &bed_path) {
 
 void Locator::parse_truth(faidx_t *fai, const string &vcf_path,
                           const string &ovcf_path) {
-  true_trees = parse(fai, vcf_path, ovcf_path);
+  true_trees = parse(fai, vcf_path, ovcf_path, true);
 }
 
 void Locator::parse_call(faidx_t *fai, const string &vcf_path,
                          const string &ovcf_path) {
-  call_trees = parse(fai, vcf_path, ovcf_path);
+  call_trees = parse(fai, vcf_path, ovcf_path, true); // CHECKME
 }
 
-map<string, interval_tree_t<int>>
-Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
+map<string, interval_tree_t<int>> Locator::parse(faidx_t *fai,
+                                                 const string &vcf_path,
+                                                 const string &ovcf_path,
+                                                 const bool filter_00) {
 
   map<string, interval_tree_t<int>> trees;
 
@@ -80,7 +82,7 @@ Locator::parse(faidx_t *fai, const string &vcf_path, const string &ovcf_path) {
 
     bcf_fmt_t *fmt = bcf_get_fmt(vcf_header, vcf_record, "GT");
     uint8_t *ptr = fmt->p + fmt->size * 0;
-    if (bcf_gt_allele(ptr[0]) == 0 && bcf_gt_allele(ptr[0]) == 0)
+    if (filter_00 && bcf_gt_allele(ptr[0]) == 0 && bcf_gt_allele(ptr[1]) == 0)
       continue;
 
     l_info = bcf_get_info(vcf_header, vcf_record, "SVLEN");

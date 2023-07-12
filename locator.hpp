@@ -39,7 +39,7 @@ private:
   map<string, interval_tree_t<int>> build_tree(const string &, const int);
   pair<int, int> get_unique_kmers(const string &seq);
   map<string, interval_tree_t<int>> parse(faidx_t *fai, const string &,
-                                          const string &);
+                                          const string &, const bool);
 };
 
 #endif // LOCATOR_H_
