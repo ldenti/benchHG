@@ -66,86 +66,11 @@ int main(int argc, char *argv[]) {
   if (opt::regions_only)
     return 0;
 
-  spdlog::info("Cleaning regions..");
-
+  spdlog::info("Preallocating data..");
   map<string, pair<string, float>> truth_results;
   map<string, pair<string, float>> call_results;
   map<string, float> regions_results;
   vector<string> clean_regions;
-
-  bcf_srs_t *sr = bcf_sr_init();
-  bcf_sr_set_opt(sr, BCF_SR_PAIR_LOGIC, BCF_SR_PAIR_BOTH_REF);
-  bcf_sr_set_opt(sr, BCF_SR_REQUIRE_IDX);
-  bcf_sr_add_reader(sr, filtered_tvcf_path.c_str());
-  bcf_sr_add_reader(sr, filtered_cvcf_path.c_str());
-  bcf_hdr_t *thdr = bcf_sr_get_header(sr, 0);
-  bcf_hdr_t *chdr = bcf_sr_get_header(sr, 1);
-
-  filtered_cvcf_path = opt::out + ".predictions.clean.vcf.gz";
-
-  htsFile *cvcf_o = bcf_open(filtered_cvcf_path.c_str(), "wz");
-  bcf_hdr_write(cvcf_o, chdr);
-
-  bcf1_t *trec, *crec;
-  int ndst = 8;
-  char *svtype = (char *)malloc(ndst);
-
-  for (const string &region : regions) {
-    regions_results[region] = -1.0;
-
-    string seq_name;
-    int64_t start_pos = -1, stop_pos = -1;
-    vg::parse_region(region, seq_name, start_pos, stop_pos);
-
-    int true_vtypes = 0;
-    bool tend = false, cend = false;
-    bool is_clean_region = false;
-
-    bcf_sr_seek(sr, seq_name.c_str(), start_pos);
-    while (bcf_sr_next_line(sr)) {
-      if (tend && cend)
-        break;
-      // truth
-      if (bcf_sr_has_line(sr, 0)) {
-        trec = bcf_sr_get_line(sr, 0);
-        if (strcmp(seq_name.c_str(), bcf_hdr_id2name(thdr, trec->rid)) == 0 &&
-            trec->pos <= stop_pos) {
-          // FIXME: assuming SVTYPE to be in the INFO
-          // svtype_info = bcf_get_info(thdr, trec, "SVTYPE");
-          // svtype_idx = svtype_info->key;
-          // const char *key = thdr->id[BCF_DT_ID][svtype_idx].key;
-          bcf_get_info_string(thdr, trec, "SVTYPE", &svtype, &ndst);
-          true_vtypes |= strcmp(svtype, "INS") == 0 ? 1 : 2;
-          truth_results[trec->d.id] = make_pair(region, -1.0);
-        } else
-          tend = true;
-      }
-      // predictions
-      if (bcf_sr_has_line(sr, 1)) {
-        crec = bcf_sr_get_line(sr, 1);
-        if (strcmp(seq_name.c_str(), bcf_hdr_id2name(chdr, crec->rid)) == 0 &&
-            crec->pos <= stop_pos) {
-          bcf_get_info_string(chdr, crec, "SVTYPE", &svtype, &ndst);
-          if (((strcmp(svtype, "INS") == 0 ? 1 : 2) & true_vtypes)) {
-            bcf_write1(cvcf_o, chdr, crec);
-            is_clean_region = true;
-          }
-          call_results[crec->d.id] = make_pair(region, -1.0);
-        } else
-          cend = true;
-      }
-    }
-    if (is_clean_region)
-      // push the region if we have a type match
-      clean_regions.push_back(region);
-  }
-  free(svtype);
-  bcf_sr_destroy(sr);
-  bcf_close(cvcf_o);
-  tbx_index_build2(filtered_cvcf_path.c_str(),
-                   (filtered_cvcf_path + ".tbi").c_str(), 14, &tbx_conf_vcf);
-
-  spdlog::info("Preallocating data..");
   vector<faidx_t *> FAI(opt::threads);
   vector<char *> REGION(opt::threads);
   // vector<char *> REGION_SEQ(opt::threads);
@@ -160,7 +85,115 @@ int main(int argc, char *argv[]) {
   strcpy(tvcf_path, filtered_tvcf_path.c_str());
   tvcf_path[filtered_tvcf_path.size()] = '\0';
 
-  spdlog::info("Starting analysis of {} regions..", clean_regions.size());
+  htsFile *vcf = bcf_open(filtered_tvcf_path.c_str(), "r");
+  bcf_hdr_t *vcf_header = bcf_hdr_read(vcf);
+  bcf1_t *vcf_record = bcf_init();
+  while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
+    bcf_unpack(vcf_record, BCF_UN_STR);
+    truth_results[vcf_record->d.id] = make_pair(".", -1.0);
+  }
+  bcf_hdr_destroy(vcf_header);
+  bcf_close(vcf);
+
+  vcf = bcf_open(filtered_cvcf_path.c_str(), "r");
+  vcf_header = bcf_hdr_read(vcf);
+  vcf_record = bcf_init();
+  while (bcf_read(vcf, vcf_header, vcf_record) == 0) {
+    bcf_unpack(vcf_record, BCF_UN_STR);
+    call_results[vcf_record->d.id] = make_pair(".", -1.0);
+  }
+  bcf_hdr_destroy(vcf_header);
+  bcf_close(vcf);
+
+  spdlog::info("Cleaning regions..");
+  bcf_srs_t *sr = bcf_sr_init();
+  bcf_sr_set_opt(sr, BCF_SR_PAIR_LOGIC, BCF_SR_PAIR_BOTH_REF);
+  bcf_sr_set_opt(sr, BCF_SR_REQUIRE_IDX);
+  bcf_sr_add_reader(sr, filtered_tvcf_path.c_str());
+  bcf_sr_add_reader(sr, filtered_cvcf_path.c_str());
+  bcf_hdr_t *thdr = bcf_sr_get_header(sr, 0);
+  bcf_hdr_t *chdr = bcf_sr_get_header(sr, 1);
+
+  filtered_cvcf_path = opt::out + ".predictions.clean.vcf.gz";
+
+  htsFile *cvcf_o = bcf_open(filtered_cvcf_path.c_str(), "wz");
+  bcf_hdr_write(cvcf_o, chdr);
+
+  bcf1_t *trec, *crec;
+  // int ndst = 8;
+  // char *svtype = (char *)malloc(ndst);
+
+  for (const string &region : regions) {
+    regions_results[region] = -1.0;
+
+    string seq_name;
+    int64_t start_pos = -1, stop_pos = -1;
+    vg::parse_region(region, seq_name, start_pos, stop_pos);
+
+    int true_vtypes = 0;
+    int call_vtypes = 0;
+    bool is_clean_region = false;
+    bcf_sr_seek(sr, seq_name.c_str(), start_pos);
+    // truth
+    while (bcf_sr_next_line(sr)) {
+      if (bcf_sr_has_line(sr, 0)) {
+        trec = bcf_sr_get_line(sr, 0);
+        if (strcmp(seq_name.c_str(), bcf_hdr_id2name(thdr, trec->rid)) != 0 ||
+            trec->pos > stop_pos)
+          break;
+
+        // FIXME: assuming SVTYPE to be in the INFO
+        // svtype_info = bcf_get_info(thdr, trec, "SVTYPE");
+        // svtype_idx = svtype_info->key;
+        // const char *key = thdr->id[BCF_DT_ID][svtype_idx].key;
+        int ndst = 8;
+        char *svtype = (char *)malloc(ndst);
+        bcf_get_info_string(thdr, trec, "SVTYPE", &svtype, &ndst);
+        char *token;
+        while ((token = strsep(&svtype, ",")))
+          true_vtypes |= strcmp(token, "INS") == 0 ? 1 : 2;
+        // truth_results[trec->d.id] = make_pair(region, -1.0); // can't do this
+        // here since we lose calls in mo matching regions
+        free(svtype);
+      }
+    }
+    bcf_sr_seek(sr, seq_name.c_str(), start_pos);
+    // predictions
+    while (bcf_sr_next_line(sr)) {
+      if (bcf_sr_has_line(sr, 1)) {
+        crec = bcf_sr_get_line(sr, 1);
+        if (strcmp(seq_name.c_str(), bcf_hdr_id2name(chdr, crec->rid)) != 0 ||
+            crec->pos > stop_pos)
+          break;
+        int ndst = 8;
+        char *svtype = (char *)malloc(ndst);
+        bcf_get_info_string(chdr, crec, "SVTYPE", &svtype, &ndst);
+        char *token;
+        call_vtypes = 0;
+        while ((token = strsep(&svtype, ",")))
+          call_vtypes |= strcmp(token, "INS") == 0 ? 1 : 2;
+        if (call_vtypes & true_vtypes) {
+          bcf_write1(cvcf_o, chdr, crec);
+          is_clean_region = true;
+        }
+        free(svtype);
+      }
+    }
+    if (is_clean_region)
+      // push the region if we have a type match
+      clean_regions.push_back(region);
+    // else
+    //   spdlog::info("Skipping {} due to no match..", region);
+  }
+  // free(svtype);
+  bcf_sr_destroy(sr);
+  bcf_close(cvcf_o);
+  tbx_index_build2(filtered_cvcf_path.c_str(),
+                   (filtered_cvcf_path + ".tbi").c_str(), 14, &tbx_conf_vcf);
+
+  spdlog::info(
+      "Starting analysis of {} regions ({} true calls and {} predictions)..",
+      clean_regions.size(), truth_results.size(), call_results.size());
   omp_set_dynamic(0);
   omp_set_num_threads(opt::threads);
 
