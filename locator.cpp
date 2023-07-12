@@ -97,11 +97,17 @@ map<string, interval_tree_t<int>> Locator::parse(faidx_t *fai,
 
     // Variant is from pos to stop
 
-    if (conf_trees.find(seq_name) != conf_trees.end() &&
-        conf_trees[seq_name].overlap_find({pos, stop + 1}) ==
-            end(conf_trees[seq_name]))
-      // variant outside confidence regions
-      continue;
+    if (conf_trees.find(seq_name) != conf_trees.end()) {
+      auto I = conf_trees[seq_name].overlap_find({pos, stop + 1});
+      if (I == end(conf_trees[seq_name]))
+        // variant outside confidence regions
+        continue;
+      if ((pos <= I->low() && I->low() <= stop) ||
+          (pos <= I->high() && I->high() <= stop)) {
+        // variant overlap region outside confidence
+        continue;
+      }
+    }
 
     bcf_write1(ovcf, vcf_header, vcf_record);
 
