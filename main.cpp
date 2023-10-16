@@ -35,9 +35,19 @@ bool is_subpath(const vector<int> &A, const vector<int> &B) {
   return sA.find(sB) != sA.npos;
 }
 
+bool is_only_ref(const vector<int> &ref_path, const vector<int> &path) {
+  for (const int &v : path)
+    if (find(ref_path.begin(), ref_path.end(), v) == ref_path.end())
+      return false;
+  return true;
+}
+
 int main(int argc, char *argv[]) {
   spdlog::set_default_logger(spdlog::stderr_color_st("stderr"));
   parse_arguments(argc, argv);
+
+  if (opt::verbose)
+    spdlog::set_level(spdlog::level::debug);
 
   spdlog::info("Initializing..");
   faidx_t *fai =
@@ -133,6 +143,7 @@ int main(int argc, char *argv[]) {
     int true_vtypes = 0;
     int call_vtypes = 0;
     bool is_clean_region = false;
+    int ntruth = 0, ncall = 0;
     bcf_sr_seek(sr, seq_name.c_str(), start_pos);
     // truth
     while (bcf_sr_next_line(sr)) {
@@ -141,7 +152,6 @@ int main(int argc, char *argv[]) {
         if (strcmp(seq_name.c_str(), bcf_hdr_id2name(thdr, trec->rid)) != 0 ||
             trec->pos > stop_pos)
           break;
-
         // FIXME: assuming SVTYPE to be in the INFO
         // svtype_info = bcf_get_info(thdr, trec, "SVTYPE");
         // svtype_idx = svtype_info->key;
@@ -155,6 +165,7 @@ int main(int argc, char *argv[]) {
         // truth_results[trec->d.id] = make_pair(region, -1.0); // can't do this
         // here since we lose calls in mo matching regions
         free(svtype);
+        ++ntruth;
       }
     }
     bcf_sr_seek(sr, seq_name.c_str(), start_pos);
@@ -177,13 +188,16 @@ int main(int argc, char *argv[]) {
           is_clean_region = true;
         }
         free(svtype);
+        ++ncall;
       }
     }
-    if (is_clean_region)
+    if (ntruth > 3 && ncall > 3)
+      spdlog::debug("Skipping {} due to complexity..", region);
+    else if (!is_clean_region)
+      spdlog::debug("Skipping {} due to no SVTYPE match..", region);
+    else
       // push the region if we have a type match
       clean_regions.push_back(region);
-    // else
-    //   spdlog::info("Skipping {} due to no match..", region);
   }
   // free(svtype);
   bcf_sr_destroy(sr);
@@ -246,12 +260,13 @@ int main(int argc, char *argv[]) {
                 string(REGION[omp_get_thread_num()]));
     graph.build();
     graph.analyze();
-#ifdef PDEBUG
-    graph.to_gfa();
-    for (const int &n : graph.ref_path)
-      cerr << n << " ";
-    cerr << endl;
-#endif
+
+    if (opt::verbose) {
+      // graph.to_gfa();
+      for (const int &n : graph.ref_path)
+        cerr << n << " ";
+      cerr << endl;
+    }
 
     float gscore1 = -1, gscore2 = -1;
     vector<string> haps;
@@ -280,37 +295,57 @@ int main(int argc, char *argv[]) {
       path1 = path2;
     }
 
-#ifdef PDEBUG
-    for (const auto &a : al.alignments) {
-      cerr << a.id << " " << a.cigar << " ";
-      for (const auto &i : a.path)
-        cerr << " " << i;
-      cerr << " " << a.score << endl;
+    if (opt::verbose) {
+      for (const auto &a : al.alignments) {
+        cerr << a.id << " " << a.cigar << " ";
+        for (const auto &i : a.path)
+          cerr << " " << i;
+        cerr << " " << a.score << endl;
+      }
     }
-#endif
 
     assert(gscore1 != -1 && gscore2 != -1);
 
-    float score1 = !is_subpath(graph.ref_path, path1) ? gscore1 : 0;
-    float score2 = !is_subpath(graph.ref_path, path2) ? gscore2 : 0;
+    float score1 = is_only_ref(graph.ref_path, path1) ? 0 : gscore1;
+    float score2 = is_only_ref(graph.ref_path, path2) ? 0 : gscore2;
     float score = (score1 + score2) / 2.0;
 
-#ifdef PDEBUG
-    cerr << "Score 1: " << score1 << endl;
-    cerr << "Score 2: " << score2 << endl;
-    cerr << "Score: " << score << endl;
-#endif
-    Scorer ts(filtered_tvcf_path, seq_name, start_pos, stop_pos, score);
-    ts.compute();
+    spdlog::debug("Score 1: {}", score1);
+    spdlog::debug("Score 2: {}", score2);
+    spdlog::debug("Score: {}", score);
 
-    Scorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos, score);
-    cs.compute();
+    // Seek and iterate over truth VCFs. Assign score to each variation
+    bcf_srs_t *sr = bcf_sr_init();
+    sr->require_index = 1;
+    bcf_sr_add_reader(sr, filtered_tvcf_path.c_str());
+    // if (!bcf_sr_add_reader(sr, filtered_tvcf_path.c_str())) {
+    //   cerr << "Failed to read from " << vcf_path << endl;
+    //   return 1;
+    // }
+    bcf_hdr_t *hdr = bcf_sr_get_header(sr, 0);
+    bcf_sr_seek(sr, seq_name.c_str(), start_pos);
+    bcf1_t *rec = bcf_init();
+    while (bcf_sr_next_line(sr)) {
+      if (bcf_sr_has_line(sr, 0)) {
+        rec = bcf_sr_get_line(sr, 0);
+        if (strcmp(seq_name.c_str(), bcf_hdr_id2name(hdr, rec->rid)) != 0 ||
+            rec->pos > stop_pos)
+          break;
+        bcf_unpack(rec, BCF_UN_ALL);
+        truth_results.at(rec->d.id) = make_pair(clean_regions[i], score);
+      }
+    }
+    bcf_sr_destroy(sr);
 
-    for (const pair<string, float> res : ts.results)
-      truth_results.at(res.first) = make_pair(clean_regions[i], res.second);
-    for (const pair<string, float> res : cs.results)
-      call_results.at(res.first) = make_pair(clean_regions[i], res.second);
-    regions_results.at(clean_regions[i]) = score;
+    // -------------------------------------------------------------------------
+    // Seek and iterate over truth VCFs. Assign score to each variation
+    // If variation is covered by alignment, assign score. 0 otherwise
+    // Scorer cs(filtered_cvcf_path, seq_name, start_pos, stop_pos, score);
+    // cs.compute();
+
+    // for (const pair<string, float> res : cs.results)
+    //   call_results.at(res.first) = make_pair(clean_regions[i], res.second);
+    // regions_results.at(clean_regions[i]) = score;
 
     free(region_seq);
   }

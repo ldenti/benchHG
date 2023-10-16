@@ -14,7 +14,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 def main():
     in_prefix = sys.argv[1]
-    tau_t = 0.7
+    tau_t = float(sys.argv[2])
 
     TRUTH = {}
     CALL = {}
@@ -46,6 +46,11 @@ def main():
     df = []
     for tau in range(0, 101, 1):
         tau = tau / 100
+        if tau == 0:
+            continue
+        if tau == tau_t:
+            print("R", sum([x >= tau for x in TRUTH.values()]), len(TRUTH), sum([x >= tau for x in TRUTH.values()]) / len(TRUTH))
+            print("P", sum([x >= tau for x in CALL.values()]), len(CALL), sum([x >= tau for x in CALL.values()]) / len(CALL))
         R = sum([x >= tau for x in TRUTH.values()]) / len(TRUTH)
         P = sum([x >= tau for x in CALL.values()]) / len(CALL)
         regP = sum([x >= tau for x in REGIONS.values()]) / len(CREGIONS)

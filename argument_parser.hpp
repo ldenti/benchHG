@@ -22,7 +22,8 @@ static const char *USAGE_MESSAGE =
     "      -c, --conf <conf.bed>             confindence regions .bed file\n"
     "      -r, --region <chr:start-end>      analyze only this region\n"
     "      -@, --threads <int>               threads (default: 1)\n"
-    "      -v, --version                     print version information\n"
+    "      --verbose                         verbose mode (default: false)"
+    "      --version                         print version information\n"
     "      -h, --help                        display this help and exit\n"
     "\n";
 // clang-format on
@@ -37,12 +38,13 @@ static string trf = "";
 static string conf = "";
 static string region = "";
 static int threads = 1;
+static bool verbose = false;
 static string fa_path;
 static string tvcf_path;
 static string cvcf_path;
 } // namespace opt
 
-static const char *shortopts = "o:k:w:W:t:c:r:R@:h";
+static const char *shortopts = "o:k:w:W:t:c:r:R@:x:z:h";
 
 static const struct option longopts[] = {
     {"out", required_argument, NULL, 'o'},
@@ -54,7 +56,8 @@ static const struct option longopts[] = {
     {"region", required_argument, NULL, 'r'},
     {"regions", no_argument, NULL, 'R'},
     {"threads", required_argument, NULL, '@'},
-    {"version", no_argument, NULL, 'v'},
+    {"version", no_argument, NULL, 'x'},
+    {"verbose", no_argument, NULL, 'z'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}};
 
@@ -91,9 +94,12 @@ void parse_arguments(int argc, char **argv) {
     case '@':
       arg >> opt::threads;
       break;
-    case 'v':
+    case 'x':
       cerr << "sveval " << VERSION << "\n";
       exit(EXIT_SUCCESS);
+    case 'z':
+      opt::verbose = true;
+      break;
     case '?':
       die = true;
       break;
